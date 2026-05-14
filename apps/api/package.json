@@ -1,5 +1,12 @@
 {
+  "name": "mogilend-api",
+  "version": "1.0.0",
+  "description": "MogiLend API",
+  "private": true,
   "dependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/mapped-types": "*",
     "@nestjs/microservices": "^11.1.19",
@@ -14,6 +21,8 @@
     "cloudinary": "^2.10.0",
     "ioredis": "^5.10.1",
     "passport-jwt": "^4.0.1",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.1",
     "streamifier": "^0.1.1"
   },
   "devDependencies": {
