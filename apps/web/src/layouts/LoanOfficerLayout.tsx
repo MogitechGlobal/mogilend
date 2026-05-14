@@ -1,0 +1,238 @@
+import React, { useState, useEffect } from 'react';
+import useAuthStore from '../store/authStore';
+import { 
+  Search, ChevronDown, CreditCard, Users, 
+  PieChart, Settings, LogOut, Menu, Briefcase, 
+  TrendingUp, Megaphone, X, LayoutDashboard, 
+  Package, Percent, FileEdit, Send, RefreshCw, 
+  Target, FileClock, CheckSquare, ArrowRightLeft, 
+  UserCog, LineChart, History, Sliders, UserPlus
+} from 'lucide-react';
+
+export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath }: any) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({ 
+    credit: true, registry: true, settings_credit: false, marketing_group: false, portfolio: false, reports: false, system: false
+  });
+  
+  const user = useAuthStore((state: any) => state.user);
+
+  // Close mobile menu automatically when the route changes
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [currentPath]);
+
+  const toggleMenu = (key: string) => {
+    setExpandedMenus(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const NavGroup = ({ title, icon: Icon, menuKey, children }: any) => {
+    const isExpanded = expandedMenus[menuKey];
+    
+    return (
+      <div className="mb-1.5 px-3">
+        <button 
+          onClick={() => toggleMenu(menuKey)}
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 outline-none group
+            ${isExpanded ? 'bg-slate-800/60 text-white' : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'}
+          `}
+        >
+          <div className="flex items-center space-x-3">
+            <Icon size={18} className={`${isExpanded ? 'text-blue-400' : 'group-hover:text-blue-400'} transition-colors`} />
+            <span className="text-xs font-bold tracking-wide">{title}</span>
+          </div>
+          <ChevronDown 
+            size={14} 
+            className={`transition-transform duration-300 ${isExpanded ? 'rotate-180 text-blue-400' : 'text-slate-500 group-hover:text-slate-400'}`} 
+          />
+        </button>
+        <div 
+          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+            isExpanded ? 'max-h-[500px] opacity-100 mt-1' : 'max-h-0 opacity-0'
+          }`}
+        >
+          <div className="flex flex-col space-y-1 py-1 bg-slate-900/30 rounded-xl mb-2">
+            {children}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const NavLink = ({ path, label, icon: Icon, isSubItem = true }: any) => {
+    const isActive = currentPath === path;
+    
+    return (
+      <button 
+        onClick={() => onNavigate(path)}
+        className={`w-full flex items-center space-x-3 text-left transition-all duration-200 outline-none
+          ${isSubItem ? 'pl-11 pr-4 py-2.5 text-[13px]' : 'px-3 py-2.5 text-xs font-bold rounded-xl mx-3 w-[calc(100%-24px)]'}
+          ${isActive 
+            ? isSubItem 
+                ? 'text-blue-400 font-bold bg-blue-500/10 relative before:absolute before:left-4 before:top-1/2 before:-translate-y-1/2 before:w-1.5 before:h-1.5 before:bg-blue-500 before:rounded-full' 
+                : 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+            : isSubItem 
+                ? 'text-slate-400 font-medium hover:text-slate-200 hover:bg-slate-800/40' 
+                : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+          }`}
+      >
+        {Icon && <Icon size={18} className={isActive && !isSubItem ? 'text-white' : isActive ? 'text-blue-400' : 'text-slate-500'} />}
+        <span>{label}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFC] flex overflow-hidden font-sans antialiased selection:bg-blue-500/30">
+      
+      {/* Mobile Backdrop Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden transition-opacity"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Corporate Sidebar */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-72 bg-[#0B1121] text-white flex flex-col shadow-2xl lg:shadow-none border-r border-slate-800/50
+        transform transition-transform duration-300 ease-in-out
+        lg:relative lg:translate-x-0
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        {/* Brand Header */}
+        <div className="h-20 px-6 flex items-center justify-between shrink-0 relative">
+          <span className="text-2xl font-black tracking-tight flex items-center space-x-2">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/30">
+               <span className="text-white text-lg leading-none">M</span>
+            </div>
+            <span>
+              <span className="text-white">Mogi</span><span className="text-blue-500 font-medium">Lend</span>
+            </span>
+          </span>
+          <button 
+            className="lg:hidden text-slate-400 hover:text-white bg-slate-800/50 p-1.5 rounded-lg transition-colors"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            <X size={20} />
+          </button>
+          <div className="absolute bottom-0 left-6 right-6 h-px bg-gradient-to-r from-slate-800 via-slate-700 to-transparent"></div>
+        </div>
+
+        {/* Scrollable Navigation Area */}
+        <nav className="flex-1 overflow-y-auto py-6 space-y-1.5 custom-scrollbar">
+          
+          {/* Top Level Link */}
+          <div className="mb-4">
+             <NavLink path="dashboard" label="Branch Dashboard" icon={LayoutDashboard} isSubItem={false} />
+          </div>
+
+          <p className="px-6 text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 mt-4">Core Modules</p>
+
+          <NavGroup title="Credit Admin" icon={CreditCard} menuKey="credit">
+            <NavLink path="application" label="New Application" icon={FileEdit} />
+            <NavLink path="disbursements" label="Disbursements" icon={Send} />
+            <NavLink path="repayments" label="Repayments" icon={RefreshCw} />
+          </NavGroup>
+
+          <NavGroup title="Customer Registry" icon={Users} menuKey="registry">
+            <NavLink path="borrowers" label="Client Database" icon={Users} />
+            <NavLink path="pending-amendments" label="Pending Amendments" icon={FileClock} />
+            <NavLink path="approvals-pending" label="Approvals Pending" icon={CheckSquare} />
+            <NavLink path="customer-transfer" label="Customer Transfer" icon={ArrowRightLeft} />
+            <NavLink path="customer-edits" label="Customer Edits" icon={UserCog} />
+          </NavGroup>
+
+          <NavGroup title="Loan Portfolio" icon={Briefcase} menuKey="portfolio">
+            <NavLink path="active-loans" label="Active Facilities" icon={Briefcase} />
+          </NavGroup>
+
+          <p className="px-6 text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 mt-6">Growth & Analytics</p>
+
+          <NavGroup title="Marketing" icon={Megaphone} menuKey="marketing_group">
+            <NavLink path="marketing" label="Campaign Overview" icon={Megaphone} />
+            <NavLink path="marketing-leads" label="Lead Generation" icon={Target} />
+          </NavGroup>
+
+          <NavGroup title="Reports & Insights" icon={PieChart} menuKey="reports">
+            <NavLink path="financial-reports" label="Financial Reports" icon={LineChart} />
+            <NavLink path="portfolio-report" label="Portfolio Analytics" icon={PieChart} />
+            <NavLink path="transaction-history" label="Transaction History" icon={History} />
+          </NavGroup>
+
+          <p className="px-6 text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 mt-6">Administration</p>
+
+          <NavGroup title="Credit Settings" icon={TrendingUp} menuKey="settings_credit">
+            <NavLink path="loan-products" label="Loan Products" icon={Package} />
+            <NavLink path="interest-rates" label="Interest Rates" icon={Percent} />
+          </NavGroup>
+
+          {(user?.role === 'Super Admin' || user?.role === 'Lender Admin') && (
+            <NavGroup title="System Settings" icon={Settings} menuKey="system">
+              <NavLink path="system-config" label="System Configuration" icon={Sliders} />
+              <NavLink path="register-staff" label="User Management" icon={UserPlus} />
+            </NavGroup>
+          )}
+        </nav>
+
+        {/* Persistent Bottom User Profile */}
+        <div className="p-4 bg-[#080d19] border-t border-slate-800/50 shrink-0">
+          <button 
+            onClick={() => onNavigate('profile')} 
+            className="w-full flex items-center space-x-3 p-2.5 hover:bg-slate-800/60 rounded-2xl transition-all duration-200 text-left group outline-none"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center font-black text-lg shadow-lg shadow-blue-500/20 uppercase shrink-0 ring-2 ring-transparent group-hover:ring-blue-400 transition-all">
+              {user?.email?.[0] || 'U'}
+            </div>
+            <div className="overflow-hidden flex-1">
+              <p className="text-sm font-bold truncate text-slate-200 tracking-wide group-hover:text-white transition-colors">{user?.email}</p>
+              <p className="text-[11px] font-medium text-slate-500 truncate mt-0.5 uppercase tracking-wider">{user?.role}</p>
+            </div>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Wrapper */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen bg-[#F8FAFC]">
+        
+        {/* Top App Bar */}
+        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shrink-0">
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)} 
+              className="lg:hidden p-2.5 text-slate-600 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition-colors outline-none"
+            >
+              <Menu size={24} />
+            </button>
+            
+            {/* Global Search */}
+            <div className="relative group hidden md:block">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search customers, loans, or transactions..." 
+                className="pl-11 pr-4 py-2.5 bg-slate-100/80 border border-transparent rounded-2xl w-72 lg:w-[400px] focus:border-blue-500/30 focus:bg-white focus:ring-4 focus:ring-blue-500/10 transition-all outline-none text-sm font-semibold text-slate-700 placeholder-slate-400 shadow-sm hover:bg-slate-100"
+              />
+            </div>
+          </div>
+          
+          <button 
+            onClick={onLogout} 
+            className="flex items-center space-x-2 text-slate-500 hover:text-red-600 font-bold text-sm bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 px-4 py-2.5 rounded-xl transition-all shadow-sm outline-none"
+          >
+            <LogOut size={18} />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
+        </header>
+
+        {/* Dynamic Page Content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+          <div className="max-w-7xl mx-auto animate-fade-in">
+            {children}
+          </div>
+        </main>
+
+      </div>
+    </div>
+  );
+};
