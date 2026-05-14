@@ -146,7 +146,7 @@ export const LoanApplicationPage = ({
     <div className="max-w-7xl mx-auto animate-fade-in pb-10">
 
       <div className="mb-8">
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">New Loan Origination</h1>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">New Loan Application</h1>
         <p className="text-slate-500 font-medium mt-1">Configure and generate a new credit agreement for a verified customer.</p>
       </div>
 

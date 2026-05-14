@@ -9,6 +9,10 @@ import { LoanProductsPage } from './pages/LoanProductsPage';
 import { InterestRatesPage } from './pages/InterestRatesPage';
 import { DisbursementsPage } from './pages/DisbursementsPage';
 import { RepaymentsPage } from './pages/RepaymentsPage';
+import { TransactionHistoryPage } from './pages/TransactionHistoryPage';
+import { PortfolioReportPage } from './pages/PortfolioReportPage';
+import { FinancialReportsPage } from './pages/FinancialReportsPage';
+import { ActiveLoansPage } from './pages/ActiveLoansPage';
 
 // Placeholder components for modules currently in development
 const Placeholder = ({ title }: { title: string }) => (
@@ -68,12 +72,13 @@ function App() {
       {currentPage === 'customer-edits' && <Placeholder title="Customer Edits" />}
       
       {/* Portfolio */}
-      {currentPage === 'active-loans' && <Placeholder title="Active Loan Portfolio" />}
+      {currentPage === 'active-loans' && <ActiveLoansPage onNavigate={setCurrentPage} />}
       
       {/* Reports */}
-      {currentPage === 'financial-reports' && <Placeholder title="Financial Reports" />}
-      {currentPage === 'portfolio-report' && <Placeholder title="Loan Portfolio Report" />}
-      {currentPage === 'transaction-history' && <Placeholder title="Transaction History" />}
+      {currentPage === 'financial-reports' && <FinancialReportsPage />}
+      {currentPage === 'portfolio-report' && <PortfolioReportPage />}
+      {currentPage === 'transaction-history' && <TransactionHistoryPage />}
+      {currentPage === 'disbursements' && <DisbursementsPage />}
       
       {/* Profile & Settings */}
       {currentPage === 'profile' && <ProfileSettings />}

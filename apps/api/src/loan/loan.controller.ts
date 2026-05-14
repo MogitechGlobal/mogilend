@@ -9,7 +9,6 @@ import { Roles } from '../auth/roles.decorator';
 export class LoanController {
   constructor(private readonly loanService: LoanService) {}
 
-  // --- THIS WAS MISSING: Fetch all loans for the queue ---
   @Get()
   async getAllLoans(@NestRequest() req: any, @Query('lender_id') lender_id?: string) {
     const activeLender = req.user.role === 'Super Admin' ? lender_id : req.user.lender_id;
@@ -17,20 +16,20 @@ export class LoanController {
   }
 
   @Post('originate')
-  @Roles('Super Admin', 'Lender Admin', 'Loan Officer')
   async originateLoan(@NestRequest() req: any, @Body() data: any) {
     return this.loanService.originate(req.user, data);
   }
 
+  // FIX: Added 'Branch Manager' to the permitted roles for disbursement
   @Patch(':id/disburse')
-  @Roles('Super Admin', 'Lender Admin')
+  @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
   async disburseLoan(@NestRequest() req: any, @Param('id') loanId: string) {
     return this.loanService.approveAndDisburse(loanId, req.user);
   }
 
-  // --- THIS WAS MISSING: Reject a loan ---
+  // FIX: Added 'Branch Manager' here so they have the authority to reject loans as well
   @Patch(':id/reject')
-  @Roles('Super Admin', 'Lender Admin', 'Loan Officer')
+  @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
   async rejectLoan(@NestRequest() req: any, @Param('id') loanId: string) {
     return this.loanService.rejectLoan(loanId, req.user);
   }

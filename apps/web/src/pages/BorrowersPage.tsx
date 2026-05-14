@@ -590,7 +590,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                         onClick={() => { setViewModal(null); onNavigate && onNavigate('loan-application'); }}
                         className="px-5 py-2.5 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors outline-none text-sm sm:text-base"
                       >
-                        Originate First Loan
+                        Apply First Loan
                       </button>
                     </div>
                   )}
@@ -688,7 +688,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                   onClick={() => { setViewModal(null); onNavigate && onNavigate('loan-application'); }}
                   className="flex-1 sm:flex-none px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md shadow-blue-500/20 active:scale-95 transition-all outline-none text-sm sm:text-base"
                 >
-                  Originate
+                  Apply
                 </button>
               </div>
             </div>

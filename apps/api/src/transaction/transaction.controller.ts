@@ -10,7 +10,6 @@ export class TransactionController {
   constructor(private readonly transactionService: TransactionService) {}
 
   @Get()
-  @Roles('Super Admin', 'Lender Admin', 'Loan Officer')
   async getTransactions(
     @NestRequest() req: any,
     @Query('type') type?: string,
@@ -20,13 +19,13 @@ export class TransactionController {
     return this.transactionService.findAll(targetLender, type);
   }
 
+  // FIX: Added 'Branch Manager' to the permitted roles for recording repayments
   @Post('repayment') 
-  @Roles('Super Admin', 'Lender Admin', 'Loan Officer')
+  @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
   async makeRepayment(@NestRequest() req: any, @Body() data: any) {
     return this.transactionService.recordRepayment(req.user, data);
   }
 
-  // --- NEW: Delete Transaction Endpoint ---
   @Delete(':id')
   @Roles('Super Admin', 'Lender Admin') // Restrict deletions to administrators only
   async deleteTransaction(@NestRequest() req: any, @Param('id') id: string) {
