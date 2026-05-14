@@ -1,9 +1,14 @@
 import axios from 'axios';
 
+// Vite automatically swaps this variable based on your environment.
+// We provide a fallback to localhost just to be safe during local development.
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/v1';
+
 // Create a central Axios instance
 export const api = axios.create({
-  baseURL: 'http://localhost:3000/v1',
+  baseURL: BASE_URL,
   timeout: 10000,
+  withCredentials: true, // Crucial for matching your NestJS CORS configuration
 });
 
 // The Interceptor: Automatically injects the JWT before every request
@@ -25,7 +30,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       console.error('SECURITY ALERT: Session expired.');
-      // Add logic here to clear localStorage and redirect to /login
+      // Clears the expired token and forces the user back to the login screen
       localStorage.removeItem('jwt_token');
       window.location.href = '/login';
     }
