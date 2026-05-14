@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mogifintech_db
+    environment:
+      POSTGRES_USER: mogi_admin
+      POSTGRES_PASSWORD: secure_dev_password
+      POSTGRES_DB: mogifintech_core
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - mogi_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mogifintech_redis
+    command: redis-server --requirepass secure_redis_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - mogi_network
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  mogi_network:
+    driver: bridge

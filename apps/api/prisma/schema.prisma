@@ -1,0 +1,174 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  permissions String[] // Array of permission strings e.g., ['approve_loan', 'view_reports']
+  users       User[]
+}
+
+model User {
+  id            String   @id @default(uuid())
+  first_name    String? // 
+  last_name     String? // 
+  lender_id     String? // Nullable for Super Admins
+  branch_id     String?
+  role_id       Int
+  email         String   @unique
+  password_hash String
+  phone         String?
+  is_active     Boolean  @default(true)
+  mfa_enabled   Boolean  @default(false)
+  mfa_secret    String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  role   Role    @relation(fields: [role_id], references: [id])
+  lender Lender? @relation(fields: [lender_id], references: [id])
+  branch Branch? @relation(fields: [branch_id], references: [id])
+}
+
+model Lender {
+  id                  String   @id @default(uuid())
+  name                String   @unique
+  email               String   @unique
+  phone               String
+  registration_number String? // e.g., CR12 Company Registration
+  tax_pin             String? // e.g., KRA PIN
+  paybill_number      String? // M-Pesa C2B Paybill
+  status              String   @default("PENDING") // PENDING, ACTIVE, SUSPENDED
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  branches      Branch[]
+  users         User[]
+  // Future relations: Borrowers, LoanProducts, MpesaTransactions
+  borrowers     Borrower[]
+  loan_products LoanProduct[]
+  loans         Loan[]
+}
+
+model Branch {
+  id         String   @id @default(uuid())
+  lender_id  String
+  name       String
+  location   String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  lender    Lender     @relation(fields: [lender_id], references: [id], onDelete: Cascade)
+  users     User[]
+  // Future relations: Borrowers
+  borrowers Borrower[]
+}
+
+model Borrower {
+  id                String   @id @default(uuid())
+  lender_id         String
+  branch_id         String
+  national_id       String   @unique // Unique across the platform
+  first_name        String
+  last_name         String
+  phone_number      String   @unique
+  email             String?
+  gender            String?
+  address           String?
+  employment_status String? // e.g., Self-Employed, Salaried
+  risk_score        Float    @default(0.0)
+  kyc_status        String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  created_at        DateTime @default(now())
+
+  lender    Lender             @relation(fields: [lender_id], references: [id])
+  branch    Branch             @relation(fields: [branch_id], references: [id])
+  documents BorrowerDocument[]
+  loans     Loan[]
+}
+
+model BorrowerDocument {
+  id            String   @id @default(uuid())
+  borrower_id   String
+  document_type String // e.g., NATIONAL_ID_FRONT, KRA_CERTIFICATE
+  file_url      String // Secure Cloudinary URL
+  verified      Boolean  @default(false)
+  uploaded_at   DateTime @default(now())
+
+  borrower Borrower @relation(fields: [borrower_id], references: [id], onDelete: Cascade)
+}
+
+model LoanProduct {
+  id              String   @id @default(uuid())
+  lender_id       String
+  name            String // e.g., "Kilimo Advance", "Biashara Boost"
+  description     String?
+  interest_rate   Float // e.g., 5.5 for 5.5%
+  interest_type   String // "FLAT", "REDUCING_BALANCE"
+  repayment_cycle String // "DAILY", "WEEKLY", "MONTHLY"
+  min_amount      Float // Minimum loan limit
+  max_amount      Float // Maximum loan limit
+  default_term    Int // e.g., 30 (days or months depending on cycle)
+  penalty_rate    Float // % charged on arrears
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+
+  lender Lender @relation(fields: [lender_id], references: [id])
+  // We will add relations to actual Loans in Module 5
+  loans  Loan[]
+}
+
+model Loan {
+  id              String @id @default(uuid())
+  lender_id       String
+  borrower_id     String
+  loan_product_id String
+
+  principal_amount    Float
+  interest_rate       Float // Captured at the time of application in case the product changes later
+  total_owed          Float // Principal + Calculated Interest
+  outstanding_balance Float
+
+  status       String    @default("PENDING") // PENDING, APPROVED, DISBURSED, COMPLETED, DEFAULTED
+  disbursed_at DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  // Relationships
+  lender       Lender        @relation(fields: [lender_id], references: [id])
+  borrower     Borrower      @relation(fields: [borrower_id], references: [id])
+  loan_product LoanProduct   @relation(fields: [loan_product_id], references: [id])
+  transactions Transaction[]
+}
+
+model Transaction {
+  id               String   @id @default(uuid())
+  loan_id          String
+  reference_code   String? // e.g., M-Pesa receipt number (TLSGP29YEV)
+  amount           Float
+  type             String // 'REPAYMENT', 'FEE', 'DISBURSEMENT'
+  description      String?
+  transaction_date DateTime @default(now())
+
+  // Relationships
+  loan Loan @relation(fields: [loan_id], references: [id])
+}
+
+model InterestRate {
+  id                    String @id @default(uuid())
+  profile_name          String
+  calculation_method    String
+  base_rate             Float
+  penalty_rate          Float
+  compounding_frequency String
+  status                String @default("Active")
+  lender_id             String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}

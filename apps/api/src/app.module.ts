@@ -1,0 +1,29 @@
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './auth/auth.module';
+import { LenderModule } from './lender/lender.module';
+import { BorrowerModule } from './borrower/borrower.module';
+import { LoanModule } from './loan/loan.module';
+import { LoanProductModule } from './loan-product/loan-product.module';
+import { TransactionModule } from './transaction/transaction.module';
+import { BranchModule } from './branch/branch.module';
+import { InterestRatesModule } from './interest-rates/interest-rates.module';
+
+@Module({
+  imports: [
+    PrismaModule, 
+    AuthModule, 
+    LenderModule,
+    BorrowerModule,
+    LoanProductModule,
+    LoanModule,
+    TransactionModule,
+    BranchModule,
+    InterestRatesModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
