@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import useAuthStore from '../store/authStore';
+import { Logo } from '../components/Logo';
 import { 
   Search, ChevronDown, CreditCard, Users, 
   PieChart, Settings, LogOut, Menu, Briefcase, 
@@ -17,7 +18,6 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
   
   const user = useAuthStore((state: any) => state.user);
 
-  // Close mobile menu automatically when the route changes
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [currentPath]);
@@ -30,16 +30,16 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
     const isExpanded = expandedMenus[menuKey];
     
     return (
-      <div className="mb-1.5 px-3">
+      <div className="mb-1">
         <button 
           onClick={() => toggleMenu(menuKey)}
           className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 outline-none group
-            ${isExpanded ? 'bg-slate-800/60 text-white' : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'}
+            ${isExpanded ? 'bg-slate-800/80 text-white' : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'}
           `}
         >
           <div className="flex items-center space-x-3">
             <Icon size={18} className={`${isExpanded ? 'text-blue-400' : 'group-hover:text-blue-400'} transition-colors`} />
-            <span className="text-xs font-bold tracking-wide">{title}</span>
+            <span className="text-[13px] font-semibold tracking-wide">{title}</span>
           </div>
           <ChevronDown 
             size={14} 
@@ -51,7 +51,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
             isExpanded ? 'max-h-[500px] opacity-100 mt-1' : 'max-h-0 opacity-0'
           }`}
         >
-          <div className="flex flex-col space-y-1 py-1 bg-slate-900/30 rounded-xl mb-2">
+          <div className="flex flex-col space-y-0.5 py-1 mb-2">
             {children}
           </div>
         </div>
@@ -65,27 +65,26 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
     return (
       <button 
         onClick={() => onNavigate(path)}
-        className={`w-full flex items-center space-x-3 text-left transition-all duration-200 outline-none
-          ${isSubItem ? 'pl-11 pr-4 py-2.5 text-[13px]' : 'px-3 py-2.5 text-xs font-bold rounded-xl mx-3 w-[calc(100%-24px)]'}
+        className={`w-full flex items-center space-x-3 text-left transition-all duration-200 outline-none rounded-xl
+          ${isSubItem ? 'pl-[42px] pr-4 py-2 text-[13px]' : 'px-3 py-2.5 text-[14px] font-semibold mb-2'}
           ${isActive 
             ? isSubItem 
-                ? 'text-blue-400 font-bold bg-blue-500/10 relative before:absolute before:left-4 before:top-1/2 before:-translate-y-1/2 before:w-1.5 before:h-1.5 before:bg-blue-500 before:rounded-full' 
-                : 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                ? 'text-white bg-blue-500/10 font-medium relative before:absolute before:left-[22px] before:top-1/2 before:-translate-y-1/2 before:w-1.5 before:h-1.5 before:bg-blue-500 before:rounded-full' 
+                : 'bg-blue-600/15 text-blue-400 border border-blue-500/20'
             : isSubItem 
                 ? 'text-slate-400 font-medium hover:text-slate-200 hover:bg-slate-800/40' 
-                : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+                : 'text-slate-400 hover:bg-slate-800/40 hover:text-white'
           }`}
       >
-        {Icon && <Icon size={18} className={isActive && !isSubItem ? 'text-white' : isActive ? 'text-blue-400' : 'text-slate-500'} />}
+        {Icon && <Icon size={18} className={isActive ? 'text-blue-400' : 'text-slate-500'} />}
         <span>{label}</span>
       </button>
     );
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex overflow-hidden font-sans antialiased selection:bg-blue-500/30">
+    <div className="min-h-[100dvh] bg-[#F8FAFC] flex overflow-hidden font-sans antialiased selection:bg-blue-500/30">
       
-      {/* Mobile Backdrop Overlay */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden transition-opacity"
@@ -93,41 +92,30 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
         />
       )}
 
-      {/* Corporate Sidebar */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-72 bg-[#0B1121] text-white flex flex-col shadow-2xl lg:shadow-none border-r border-slate-800/50
         transform transition-transform duration-300 ease-in-out
         lg:relative lg:translate-x-0
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        {/* Brand Header */}
-        <div className="h-20 px-6 flex items-center justify-between shrink-0 relative">
-          <span className="text-2xl font-black tracking-tight flex items-center space-x-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/30">
-               <span className="text-white text-lg leading-none">M</span>
-            </div>
-            <span>
-              <span className="text-white">Mogi</span><span className="text-blue-500 font-medium">Lend</span>
-            </span>
-          </span>
+        {/* Brand Header - Adjusted padding for perfect alignment */}
+        <div className="h-20 px-5 flex items-center justify-between shrink-0 relative">
+          <Logo />
           <button 
             className="lg:hidden text-slate-400 hover:text-white bg-slate-800/50 p-1.5 rounded-lg transition-colors"
             onClick={() => setIsMobileMenuOpen(false)}
           >
             <X size={20} />
           </button>
-          <div className="absolute bottom-0 left-6 right-6 h-px bg-gradient-to-r from-slate-800 via-slate-700 to-transparent"></div>
+          <div className="absolute bottom-0 left-5 right-5 h-px bg-gradient-to-r from-slate-800 via-slate-700 to-transparent"></div>
         </div>
 
         {/* Scrollable Navigation Area */}
-        <nav className="flex-1 overflow-y-auto py-6 space-y-1.5 custom-scrollbar">
+        <nav className="flex-1 overflow-y-auto pt-5 pb-8 px-3 space-y-1 custom-scrollbar">
           
-          {/* Top Level Link */}
-          <div className="mb-4">
-             <NavLink path="dashboard" label="Branch Dashboard" icon={LayoutDashboard} isSubItem={false} />
-          </div>
+          <NavLink path="dashboard" label="Branch Dashboard" icon={LayoutDashboard} isSubItem={false} />
 
-          <p className="px-6 text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 mt-4">Core Modules</p>
+          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-4">Core Modules</p>
 
           <NavGroup title="Credit Admin" icon={CreditCard} menuKey="credit">
             <NavLink path="application" label="New Application" icon={FileEdit} />
@@ -147,7 +135,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
             <NavLink path="active-loans" label="Active Facilities" icon={Briefcase} />
           </NavGroup>
 
-          <p className="px-6 text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 mt-6">Growth & Analytics</p>
+          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-6">Growth & Analytics</p>
 
           <NavGroup title="Marketing" icon={Megaphone} menuKey="marketing_group">
             <NavLink path="marketing" label="Campaign Overview" icon={Megaphone} />
@@ -160,7 +148,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
             <NavLink path="transaction-history" label="Transaction History" icon={History} />
           </NavGroup>
 
-          <p className="px-6 text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 mt-6">Administration</p>
+          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-6">Administration</p>
 
           <NavGroup title="Credit Settings" icon={TrendingUp} menuKey="settings_credit">
             <NavLink path="loan-products" label="Loan Products" icon={Package} />
@@ -192,10 +180,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
         </div>
       </aside>
 
-      {/* Main Content Wrapper */}
       <div className="flex-1 flex flex-col min-w-0 h-screen bg-[#F8FAFC]">
-        
-        {/* Top App Bar */}
         <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shrink-0">
           <div className="flex items-center space-x-4">
             <button 
@@ -205,7 +190,6 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
               <Menu size={24} />
             </button>
             
-            {/* Global Search */}
             <div className="relative group hidden md:block">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={18} />
               <input 
@@ -225,7 +209,6 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
           </button>
         </header>
 
-        {/* Dynamic Page Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto animate-fade-in">
             {children}
