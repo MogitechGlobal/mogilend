@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Request as NestRequest, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseGuards, Request as NestRequest, Patch, Delete } from '@nestjs/common';
 import { UserService } from './user.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -29,5 +29,23 @@ export class UserController {
   async updatePassword(@NestRequest() req: any, @Body() data: any) {
     // req.user.id is automatically provided by the JwtAuthGuard from their login token
     return this.userService.updatePassword(req.user.id, data);
+  }
+
+  @Patch(':id/toggle-status')
+  @Roles('Super Admin', 'Lender Admin') // Only admins can suspend staff
+  async toggleUserStatus(@NestRequest() req: any, @Param('id') targetUserId: string) {
+    return this.userService.toggleStatus(req.user, targetUserId);
+  }
+
+  @Patch(':id')
+  @Roles('Super Admin', 'Lender Admin')
+  async updateStaff(@NestRequest() req: any, @Param('id') targetUserId: string, @Body() data: any) {
+    return this.userService.updateStaff(req.user, targetUserId, data);
+  }
+
+  @Delete(':id')
+  @Roles('Super Admin', 'Lender Admin')
+  async deleteStaff(@NestRequest() req: any, @Param('id') targetUserId: string) {
+    return this.userService.deleteStaff(req.user, targetUserId);
   }
 }

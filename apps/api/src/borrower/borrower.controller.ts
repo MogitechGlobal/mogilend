@@ -45,6 +45,24 @@ export class BorrowerController {
         return this.borrowerService.findByLender(lenderId);
     }
 
+    // --- NEW: Customer Transfer Endpoints ---
+    @Get('transfer-list')
+    @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
+    async getBorrowersForTransfer(@NestRequest() req: any) {
+        return this.borrowerService.getBorrowersForTransfer(req.user);
+    }
+
+    @Patch(':id/transfer')
+    @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
+    async transferCustomer(
+        @NestRequest() req: any, 
+        @Param('id') borrowerId: string, 
+        @Body('target_branch_id') targetBranchId: string
+    ) {
+        return this.borrowerService.transferCustomer(req.user, borrowerId, targetBranchId);
+    }
+
+    // --- EXISTING LOGIC ---
     @Post()
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
     async createBorrower(@NestRequest() req: any, @Body() data: any) {
@@ -90,7 +108,6 @@ export class BorrowerController {
         return this.borrowerService.addDocument(id, documentType, uploadResult.secure_url, req.user);
     }
 
-    // THIS IS THE MISSING ENDPOINT THAT CAUSES THE 404 ERROR
     @Delete(':id/documents/:docId')
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager') 
     async deleteDocument(

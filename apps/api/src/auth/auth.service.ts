@@ -32,6 +32,12 @@ export class AuthService {
   }
 
   async login(user: any) {
+    // 1. Update the last_login_at timestamp in the database
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { last_login_at: new Date() }
+    });
+
     if (user.mfa_enabled) {
       // Return temporary token for MFA verification step
       return { mfa_required: true, temp_token: this.generateTempToken(user) };

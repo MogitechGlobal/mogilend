@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, InternalServerErrorException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, InternalServerErrorException, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
@@ -110,5 +110,64 @@ export class UserService {
     });
 
     return { message: 'Password updated successfully. Your account is now secure.' };
+  }
+
+  async toggleStatus(adminUser: any, targetUserId: string) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }});
+    if (!target) throw new NotFoundException('User not found.');
+
+    // Prevent cross-tenant modification
+    if (adminUser.role !== 'Super Admin' && target.lender_id !== adminUser.lender_id) {
+      throw new ForbiddenException('Unauthorized to modify this user.');
+    }
+
+    // Prevent an admin from accidentally suspending themselves
+    if (adminUser.id === targetUserId) {
+      throw new BadRequestException('You cannot suspend your own active session.');
+    }
+
+    return this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { is_active: !target.is_active }
+    });
+  }
+
+  async updateStaff(adminUser: any, targetUserId: string, data: any) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }});
+    if (!target) throw new NotFoundException('User not found.');
+
+    // Tenant isolation
+    if (adminUser.role !== 'Super Admin' && target.lender_id !== adminUser.lender_id) {
+      throw new ForbiddenException('Unauthorized to modify this user.');
+    }
+
+    const updateData: any = { branch_id: data.branch_id };
+
+    // Resolve new role if it was changed
+    if (data.role_name) {
+      const role = await this.prisma.role.findUnique({ where: { name: data.role_name }});
+      if (!role) throw new BadRequestException(`Role '${data.role_name}' not found.`);
+      updateData.role_id = role.id;
+    }
+
+    return this.prisma.user.update({
+      where: { id: targetUserId },
+      data: updateData
+    });
+  }
+
+  async deleteStaff(adminUser: any, targetUserId: string) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }});
+    if (!target) throw new NotFoundException('User not found.');
+
+    if (adminUser.role !== 'Super Admin' && target.lender_id !== adminUser.lender_id) {
+      throw new ForbiddenException('Unauthorized to delete this user.');
+    }
+
+    if (adminUser.id === targetUserId) {
+      throw new BadRequestException('You cannot delete your own active session.');
+    }
+
+    return this.prisma.user.delete({ where: { id: targetUserId }});
   }
 }

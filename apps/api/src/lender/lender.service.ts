@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, ConflictException, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLenderDto } from './dto/create-lender.dto';
 import { MailService } from '../mail/mail.service'; // Adjust path if necessary
@@ -87,5 +87,43 @@ export class LenderService {
       include: { branches: true },
       orderBy: { created_at: 'desc' }
     });
+  }
+
+  // Add these inside your LenderService class
+  async updateLender(id: string, data: any) {
+    const lender = await this.prisma.lender.findUnique({ where: { id } });
+    if (!lender) throw new NotFoundException('Lender not found.');
+
+    return this.prisma.lender.update({
+      where: { id },
+      data: {
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        tax_pin: data.tax_pin,
+        registration_number: data.registration_number,
+      }
+    });
+  }
+
+  async toggleStatus(id: string) {
+    const lender = await this.prisma.lender.findUnique({ where: { id } });
+    if (!lender) throw new NotFoundException('Lender not found.');
+
+    const newStatus = lender.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+
+    return this.prisma.lender.update({
+      where: { id },
+      data: { status: newStatus }
+    });
+  }
+
+  async deleteLender(id: string) {
+    const lender = await this.prisma.lender.findUnique({ where: { id } });
+    if (!lender) throw new NotFoundException('Lender not found.');
+
+    // Note: Due to cascading relations, deleting a lender will delete all their branches and users.
+    // In a production financial system, you might prefer to only 'SUSPEND' rather than hard delete.
+    return this.prisma.lender.delete({ where: { id } });
   }
 }

@@ -15,6 +15,11 @@ import { FinancialReportsPage } from './pages/FinancialReportsPage';
 import { ActiveLoansPage } from './pages/ActiveLoansPage';
 import { SystemConfigPage } from './pages/SystemConfigPage';
 import { RegisterStaffPage } from './pages/RegisterStaffPage';
+import { BranchManagementPage } from './pages/BranchManagementPage';
+import { ApprovalsPendingPage } from './pages/ApprovalsPendingPage';
+import { PendingAmendmentsPage } from './pages/PendingAmendmentsPage';
+import { CustomerTransferPage } from './pages/CustomerTransferPage';
+import { CustomerEditsPage } from './pages/CustomerEditsPage';
 
 // Placeholder components for modules currently in development
 const Placeholder = ({ title }: { title: string }) => (
@@ -35,7 +40,8 @@ function App() {
     | 'active-loans' 
     | 'financial-reports' | 'portfolio-report' | 'transaction-history' 
     | 'profile' 
-    | 'system-config' | 'register-staff';
+    | 'system-config' | 'register-staff'
+    | 'branch-management';
 
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
 
@@ -68,10 +74,10 @@ function App() {
 
       {/* Expanded Registry */}
       {currentPage === 'borrowers' && <BorrowersPage />}
-      {currentPage === 'pending-amendments' && <Placeholder title="Pending Amendments" />}
-      {currentPage === 'approvals-pending' && <Placeholder title="Approvals Pending" />}
-      {currentPage === 'customer-transfer' && <Placeholder title="Customer Transfer" />}
-      {currentPage === 'customer-edits' && <Placeholder title="Customer Edits" />}
+      {currentPage === 'pending-amendments' && <PendingAmendmentsPage/>}
+      {currentPage === 'approvals-pending' && <ApprovalsPendingPage/>}
+      {currentPage === 'customer-transfer' && <CustomerTransferPage />}
+      {currentPage === 'customer-edits' && <CustomerEditsPage />}
       
       {/* Portfolio */}
       {currentPage === 'active-loans' && <ActiveLoansPage onNavigate={setCurrentPage} />}
@@ -80,12 +86,12 @@ function App() {
       {currentPage === 'financial-reports' && <FinancialReportsPage />}
       {currentPage === 'portfolio-report' && <PortfolioReportPage />}
       {currentPage === 'transaction-history' && <TransactionHistoryPage />}
-      {currentPage === 'disbursements' && <DisbursementsPage />}
       
       {/* Profile & Settings */}
       {currentPage === 'profile' && <ProfileSettings />}
       {currentPage === 'system-config' && <SystemConfigPage />}
       {currentPage === 'register-staff' && <RegisterStaffPage />}
+      {currentPage === 'branch-management' && <BranchManagementPage />}
     </LoanOfficerLayout>
   );
 }

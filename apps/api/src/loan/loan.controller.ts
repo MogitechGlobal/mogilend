@@ -15,22 +15,52 @@ export class LoanController {
     return this.loanService.findAll(activeLender);
   }
 
+  // --- NEW: Pending Approvals Queue ---
+  @Get('pending')
+  @Roles('Super Admin', 'Lender Admin', 'Branch Manager') 
+  async getPendingApprovals(@NestRequest() req: any) {
+    return this.loanService.getPendingApprovals(req.user);
+  }
+
   @Post('originate')
   async originateLoan(@NestRequest() req: any, @Body() data: any) {
     return this.loanService.originate(req.user, data);
   }
 
-  // FIX: Added 'Branch Manager' to the permitted roles for disbursement
+  // --- EXISTING ACTIONS ---
   @Patch(':id/disburse')
   @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
   async disburseLoan(@NestRequest() req: any, @Param('id') loanId: string) {
     return this.loanService.approveAndDisburse(loanId, req.user);
   }
 
-  // FIX: Added 'Branch Manager' here so they have the authority to reject loans as well
   @Patch(':id/reject')
   @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
-  async rejectLoan(@NestRequest() req: any, @Param('id') loanId: string) {
+  async rejectLoanOld(@NestRequest() req: any, @Param('id') loanId: string) {
     return this.loanService.rejectLoan(loanId, req.user);
+  }
+
+  // --- NEW: Status update via the Dashboard Drawer ---
+  @Patch(':id/status')
+  @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
+  async updateLoanStatus(
+    @NestRequest() req: any, 
+    @Param('id') loanId: string, 
+    @Body('status') status: string
+  ) {
+    return this.loanService.updateLoanStatus(req.user, loanId, status);
+  }
+
+  // --- NEW: Pending Amendments ---
+  @Get('amendments')
+  @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
+  async getPendingAmendments(@NestRequest() req: any) {
+    return this.loanService.getPendingAmendments(req.user);
+  }
+
+  @Patch(':id/amend')
+  @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
+  async submitAmendment(@NestRequest() req: any, @Param('id') loanId: string, @Body() data: any) {
+    return this.loanService.submitAmendment(req.user, loanId, data);
   }
 }

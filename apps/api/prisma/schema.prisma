@@ -16,20 +16,21 @@ model Role {
 }
 
 model User {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   first_name    String? // 
   last_name     String? // 
   lender_id     String? // Nullable for Super Admins
   branch_id     String?
   role_id       Int
-  email         String   @unique
+  email         String    @unique
   password_hash String
   phone         String?
-  is_active     Boolean  @default(true)
-  mfa_enabled   Boolean  @default(false)
+  is_active     Boolean   @default(true)
+  mfa_enabled   Boolean   @default(false)
   mfa_secret    String?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  last_login_at DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
 
   role   Role    @relation(fields: [role_id], references: [id])
   lender Lender? @relation(fields: [lender_id], references: [id])

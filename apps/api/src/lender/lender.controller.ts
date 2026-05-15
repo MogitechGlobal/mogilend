@@ -1,8 +1,8 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { LenderService } from './lender.service';
 import { CreateLenderDto } from './dto/create-lender.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // You will create this standard guard
-import { RolesGuard } from '../auth/roles.guard';       // Custom RBAC guard
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
 @Controller('v1/lenders')
@@ -11,7 +11,7 @@ export class LenderController {
   constructor(private readonly lenderService: LenderService) {}
 
   @Post()
-  @Roles('Super Admin') // Only platform owners can onboard new organizations
+  @Roles('Super Admin')
   async createLender(@Body() createLenderDto: CreateLenderDto) {
     return this.lenderService.onboardLender(createLenderDto);
   }
@@ -20,5 +20,23 @@ export class LenderController {
   @Roles('Super Admin')
   async getLenders() {
     return this.lenderService.getAllLenders();
+  }
+
+  @Patch(':id')
+  @Roles('Super Admin')
+  async updateLender(@Param('id') id: string, @Body() data: any) {
+    return this.lenderService.updateLender(id, data);
+  }
+
+  @Patch(':id/toggle-status')
+  @Roles('Super Admin')
+  async toggleLenderStatus(@Param('id') id: string) {
+    return this.lenderService.toggleStatus(id);
+  }
+
+  @Delete(':id')
+  @Roles('Super Admin')
+  async deleteLender(@Param('id') id: string) {
+    return this.lenderService.deleteLender(id);
   }
 }
