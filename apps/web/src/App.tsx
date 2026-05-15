@@ -13,6 +13,8 @@ import { TransactionHistoryPage } from './pages/TransactionHistoryPage';
 import { PortfolioReportPage } from './pages/PortfolioReportPage';
 import { FinancialReportsPage } from './pages/FinancialReportsPage';
 import { ActiveLoansPage } from './pages/ActiveLoansPage';
+import { SystemConfigPage } from './pages/SystemConfigPage';
+import { RegisterStaffPage } from './pages/RegisterStaffPage';
 
 // Placeholder components for modules currently in development
 const Placeholder = ({ title }: { title: string }) => (
@@ -82,8 +84,8 @@ function App() {
       
       {/* Profile & Settings */}
       {currentPage === 'profile' && <ProfileSettings />}
-      {currentPage === 'system-config' && <Placeholder title="System Configuration" />}
-      {currentPage === 'register-staff' && <Placeholder title="User Management" />}
+      {currentPage === 'system-config' && <SystemConfigPage />}
+      {currentPage === 'register-staff' && <RegisterStaffPage />}
     </LoanOfficerLayout>
   );
 }

@@ -10,18 +10,21 @@ import { LoanProductModule } from './loan-product/loan-product.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { BranchModule } from './branch/branch.module';
 import { InterestRatesModule } from './interest-rates/interest-rates.module';
+import { UserModule } from './user/user.module';
 
 @Module({
   imports: [
     PrismaModule, 
     AuthModule, 
     LenderModule,
+    UserModule,
     BorrowerModule,
     LoanProductModule,
     LoanModule,
     TransactionModule,
     BranchModule,
     InterestRatesModule,
+
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,10 +1,16 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, ConflictException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLenderDto } from './dto/create-lender.dto';
+import { MailService } from '../mail/mail.service'; // Adjust path if necessary
+import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class LenderService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mailService: MailService // Inject the new Mail Service
+  ) {}
 
   async onboardLender(data: CreateLenderDto) {
     const existingLender = await this.prisma.lender.findUnique({
@@ -15,9 +21,20 @@ export class LenderService {
       throw new ConflictException('A lender with this email already exists.');
     }
 
-    // Execute as an atomic transaction for relational integrity [cite: 98]
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Create the root Lender organization [cite: 253]
+    // 1. Generate a secure, random temporary password
+    const tempPassword = crypto.randomBytes(6).toString('hex'); // e.g., 'a1b2c3d4e5f6'
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+    // Execute as an atomic transaction to ensure Data Integrity
+    const result = await this.prisma.$transaction(async (tx) => {
+      
+      // 2. Fetch the ID for the 'Lender Admin' role
+      const adminRole = await tx.role.findUnique({ where: { name: 'Lender Admin' } });
+      if (!adminRole) {
+        throw new InternalServerErrorException('Critical Error: Lender Admin role not found in database.');
+      }
+
+      // 3. Create the root Lender organization
       const lender = await tx.lender.create({
         data: {
           name: data.name,
@@ -29,7 +46,7 @@ export class LenderService {
         },
       });
 
-      // 2. Provision the default Headquarters branch [cite: 254]
+      // 4. Provision the default Headquarters branch
       const branch = await tx.branch.create({
         data: {
           lender_id: lender.id,
@@ -38,8 +55,31 @@ export class LenderService {
         },
       });
 
-      return { lender, default_branch: branch };
+      // 5. Create the initial root User account for this Lender
+      const rootUser = await tx.user.create({
+        data: {
+          email: data.email,
+          password_hash: passwordHash,
+          role_id: adminRole.id,
+          lender_id: lender.id,
+          branch_id: branch.id,
+          first_name: 'System',
+          last_name: 'Administrator',
+          is_active: true,
+        }
+      });
+
+      return { lender, default_branch: branch, admin_user: rootUser };
     });
+
+    // 6. After the database transaction is successfully committed, send the email!
+    // We send the plain-text `tempPassword` via email, while the DB only stores the hash.
+    await this.mailService.sendLenderWelcomeEmail(data.email, data.name, tempPassword);
+
+    return {
+      message: 'Institution onboarded successfully. Credentials have been emailed.',
+      lender: result.lender
+    };
   }
 
   async getAllLenders() {
