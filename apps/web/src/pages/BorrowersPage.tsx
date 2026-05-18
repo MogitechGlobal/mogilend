@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import useAuthStore from '../store/authStore';
 import { api } from '../lib/api';
-import { 
-  Search, Plus, User, Phone, MapPin, Edit, 
+import {
+  Search, Plus, User, Phone, MapPin, Edit,
   ShieldCheck, Clock, XCircle, Eye, ShieldAlert,
-  Loader2, CheckCircle2, FileUp, Activity, X, 
+  Loader2, CheckCircle2, FileUp, Activity, X,
   Briefcase, Filter, Building2, CalendarDays,
   Banknote, Trash2, Image as ImageIcon,
   Download
@@ -15,28 +15,66 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
   const canManage = ['Super Admin', 'Lender Admin', 'Branch Manager'].includes(user?.role);
 
   const [borrowers, setBorrowers] = useState<any[]>([]);
-  const [branches, setBranches] = useState<any[]>([]); 
+  const [branches, setBranches] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'VERIFIED' | 'PENDING' | 'REJECTED'>('ALL');
 
   // Advanced Filters State
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [branchFilter, setBranchFilter] = useState('ALL'); 
+  const [branchFilter, setBranchFilter] = useState('ALL');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
+  const loadBorrowers = async () => {
+    setIsLoading(true);
+    try {
+      const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
+      const response = await api.get(`/borrowers?lender_id=${activeLenderId}`);
+      setBorrowers(response.data);
+    } catch (error) {
+      console.error('Failed to fetch borrowers:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 2. CALL IT WHEN THE COMPONENT LOADS
+  useEffect(() => {
+    if (user) {
+      loadBorrowers();
+    }
+  }, [user]);
 
   // Modal States
   const [viewModal, setViewModal] = useState<any | null>(null);
-  const [detailsTab, setDetailsTab] = useState<'overview' | 'loans' | 'documents' | 'history'>('overview');
-  
+  const [detailsTab, setDetailsTab] = useState<'overview' | 'loans' | 'documents' | 'history' | 'kin' | 'guarantors'>('overview');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModal, setEditModal] = useState<any | null>(null);
   const [deleteModal, setDeleteModal] = useState<any | null>(null);
-  
+
+  // New States for Next of Kin / Guarantor Forms
+  const [kinForm, setKinForm] = useState({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+  const [guarForm, setGuarForm] = useState({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+  const [editingGuarantorId, setEditingGuarantorId] = useState<string | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Auto-populate Next of Kin form when the tab opens
+  useEffect(() => {
+    if (detailsTab === 'kin' && viewModal) {
+      setKinForm({
+        full_name: viewModal.next_of_kin?.full_name || '',
+        relationship: viewModal.next_of_kin?.relationship || '',
+        phone_number: viewModal.next_of_kin?.phone_number || '',
+        id_number: viewModal.next_of_kin?.id_number || ''
+      });
+    }
+  }, [detailsTab, viewModal?.id]);
+
   // Document Upload & Delete States
   const [uploadDocModalOpen, setUploadDocModalOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<any | null>(null);
-  const [deleteDocModal, setDeleteDocModal] = useState<any | null>(null); 
+  const [deleteDocModal, setDeleteDocModal] = useState<any | null>(null);
   const [uploadForm, setUploadForm] = useState<{ type: string; file: File | null }>({
     type: 'NATIONAL_ID_FRONT',
     file: null
@@ -46,8 +84,8 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
   // Form State
   const [formData, setFormData] = useState({
-    first_name: '', last_name: '', national_id: '', phone_number: '', 
-    email: '', gender: 'MALE', address: '', branch_id: '' 
+    first_name: '', last_name: '', national_id: '', phone_number: '',
+    email: '', gender: 'MALE', address: '', branch_id: ''
   });
 
   const [editFormData, setEditFormData] = useState<any>({});
@@ -113,7 +151,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       await api.post('/borrowers', payload);
       setCreateModalOpen(false);
       setFormData({ first_name: '', last_name: '', national_id: '', phone_number: '', email: '', gender: 'MALE', address: '', branch_id: '' });
-      loadData(); 
+      loadData();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to register customer.');
     } finally {
@@ -131,7 +169,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       };
       await api.patch(`/borrowers/${editModal.id}`, payload);
       setEditModal(null);
-      loadData(); 
+      loadData();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to update customer.');
     } finally {
@@ -144,7 +182,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     try {
       await api.delete(`/borrowers/${deleteModal.id}`);
       setDeleteModal(null);
-      loadData(); 
+      loadData();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Deletion failed due to system rules.');
     } finally {
@@ -168,7 +206,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
       setUploadForm({ type: 'NATIONAL_ID_FRONT', file: null });
       setUploadDocModalOpen(false);
-      loadData(); 
+      loadData();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to upload document.');
     } finally {
@@ -182,8 +220,8 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     try {
       await api.delete(`/borrowers/${viewModal.id}/documents/${deleteDocModal.id}`);
       setDeleteDocModal(null);
-      setPreviewDoc(null); 
-      loadData(); 
+      setPreviewDoc(null);
+      loadData();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to delete document.');
     } finally {
@@ -206,9 +244,89 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     return <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-amber-200">{s}</span>;
   };
 
+  const handleSaveKin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUploading(true);
+    try {
+      const formPayload = new FormData();
+      Object.entries(kinForm).forEach(([key, value]) => formPayload.append(key, value));
+      if (selectedPhoto) formPayload.append('file', selectedPhoto);
+
+      await api.post(`/borrowers/${viewModal.id}/next-of-kin`, formPayload, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      alert('Next of Kin updated successfully!');
+      setSelectedPhoto(null);
+      loadBorrowers(); // Refresh data
+    } catch (error) {
+      alert('Failed to save Next of Kin.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSaveGuarantor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUploading(true);
+    try {
+      const formPayload = new FormData();
+      Object.entries(guarForm).forEach(([key, value]) => formPayload.append(key, value));
+      if (selectedPhoto) formPayload.append('file', selectedPhoto);
+
+      await api.post(`/borrowers/${viewModal.id}/guarantors`, formPayload, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      alert('Guarantor added successfully!');
+      setSelectedPhoto(null);
+      setGuarForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+      loadBorrowers();
+    } catch (error) {
+      alert('Failed to save Guarantor.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteKin = async () => {
+    if (!window.confirm('Are you sure you want to remove the Next of Kin?')) return;
+    try {
+      await api.delete(`/borrowers/${viewModal.id}/next-of-kin`);
+      setKinForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+      await refreshViewModal();
+    } catch (error) { alert('Failed to delete Next of Kin.'); }
+  };
+
+  // --- GUARANTOR HANDLERS ---
+  const handleEditGuarantorClick = (g: any) => {
+    setEditingGuarantorId(g.id);
+    setGuarForm({ full_name: g.full_name, relationship: g.relationship, phone_number: g.phone_number, id_number: g.id_number || '' });
+  };
+
+  const handleDeleteGuarantor = async (gid: string) => {
+    if (!window.confirm('Are you sure you want to remove this Guarantor?')) return;
+    try {
+      await api.delete(`/borrowers/${viewModal.id}/guarantors/${gid}`);
+      if (editingGuarantorId === gid) {
+        setEditingGuarantorId(null);
+        setGuarForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+      }
+      await refreshViewModal();
+    } catch (error) { alert('Failed to delete Guarantor.'); }
+  };
+
+  // Helper to refresh the modal so UI updates instantly without closing it
+  const refreshViewModal = async () => {
+    loadBorrowers(); // Refresh background table
+    const response = await api.get(`/borrowers?lender_id=${user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e'}`);
+    const updatedBorrower = response.data.find((b: any) => b.id === viewModal.id);
+    if (updatedBorrower) setViewModal(updatedBorrower);
+  };
+
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-10">
-      
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
@@ -218,27 +336,26 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           <div className="relative group flex-1 md:w-64">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={18} />
-            <input 
-              type="text" placeholder="Search name, ID, or phone..." 
+            <input
+              type="text" placeholder="Search name, ID, or phone..."
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
             />
           </div>
-          
+
           <div className="flex gap-2">
-            <button 
+            <button
               onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className={`p-2.5 border rounded-xl transition-colors outline-none flex items-center justify-center shadow-sm ${
-                showAdvancedFilters || branchFilter !== 'ALL' || dateRange.start || dateRange.end 
-                ? 'bg-blue-50 border-blue-200 text-blue-600' 
+              className={`p-2.5 border rounded-xl transition-colors outline-none flex items-center justify-center shadow-sm ${showAdvancedFilters || branchFilter !== 'ALL' || dateRange.start || dateRange.end
+                ? 'bg-blue-50 border-blue-200 text-blue-600'
                 : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
+                }`}
               title="Advanced Filters"
             >
               <Filter size={18} />
             </button>
 
-            <button 
+            <button
               onClick={() => setCreateModalOpen(true)}
               className="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 hover:bg-blue-700 active:scale-95 transition-all outline-none"
             >
@@ -252,24 +369,24 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       {showAdvancedFilters && (
         <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6 animate-fade-in grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 shadow-inner">
           <div className="md:col-span-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><Building2 size={12} className="mr-1.5"/> Filter by Branch</label>
-            <select 
-              value={branchFilter} onChange={e => setBranchFilter(e.target.value)} 
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><Building2 size={12} className="mr-1.5" /> Filter by Branch</label>
+            <select
+              value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
               className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
             >
-               <option value="ALL">All Operating Branches</option>
-               {branches.map(b => (
-                 <option key={b.id} value={b.id}>{b.name} ({b.location})</option>
-               ))}
+              <option value="ALL">All Operating Branches</option>
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name} ({b.location})</option>
+              ))}
             </select>
           </div>
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><CalendarDays size={12} className="mr-1.5"/> Date From</label>
-            <input type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" />
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><CalendarDays size={12} className="mr-1.5" /> Date From</label>
+            <input type="date" value={dateRange.start} onChange={e => setDateRange({ ...dateRange, start: e.target.value })} className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" />
           </div>
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><CalendarDays size={12} className="mr-1.5"/> Date To</label>
-            <input type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" />
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><CalendarDays size={12} className="mr-1.5" /> Date To</label>
+            <input type="date" value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })} className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" />
           </div>
         </div>
       )}
@@ -305,11 +422,10 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
           <button
             key={tab}
             onClick={() => setActiveFilter(tab as any)}
-            className={`px-5 py-2 rounded-xl text-sm font-bold capitalize transition-all outline-none whitespace-nowrap ${
-              activeFilter === tab 
-                ? 'bg-slate-800 text-white shadow-md' 
-                : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
-            }`}
+            className={`px-5 py-2 rounded-xl text-sm font-bold capitalize transition-all outline-none whitespace-nowrap ${activeFilter === tab
+              ? 'bg-slate-800 text-white shadow-md'
+              : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+              }`}
           >
             {tab.toLowerCase()}
           </button>
@@ -378,17 +494,17 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                     </td>
                     <td className="p-5 text-right pr-6">
                       <div className="flex justify-end space-x-2 opacity-80 group-hover:opacity-100 transition-opacity">
-                        
-                        <button 
+
+                        <button
                           onClick={() => { setDetailsTab('overview'); setViewModal(borrower); }}
                           className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 flex items-center justify-center hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm outline-none" title="View Profile"
                         >
                           <Eye size={16} />
                         </button>
-                        
+
                         {canManage && (
                           <>
-                            <button 
+                            <button
                               onClick={() => {
                                 setEditFormData({
                                   first_name: borrower.first_name, last_name: borrower.last_name,
@@ -403,7 +519,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                             >
                               <Edit size={16} />
                             </button>
-                            <button 
+                            <button
                               onClick={() => setDeleteModal(borrower)}
                               className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors shadow-sm outline-none" title="Delete Customer"
                             >
@@ -426,19 +542,19 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       {viewModal && (
         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-6 bg-slate-900/60 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setViewModal(null)}></div>
-          
+
           {/* Constrains the modal width on laptop/desktop screens while keeping it w-full on mobile. */}
           <div className="bg-slate-50 w-full sm:max-w-4xl lg:max-w-5xl h-[95vh] sm:h-auto sm:max-h-[95vh] rounded-t-3xl sm:rounded-b-3xl sm:rounded-[2rem] shadow-2xl relative z-10 overflow-hidden animate-fade-in flex flex-col">
-            
+
             {/* Extended Profile Hero Header (Mobile-Optimized Horizontal Layout) */}
             <div className="bg-[#0B1121] px-5 sm:px-8 pt-6 sm:pt-10 pb-5 sm:pb-6 text-white relative shrink-0">
               <button onClick={() => setViewModal(null)} className="absolute top-4 sm:top-6 right-4 sm:right-6 text-slate-400 hover:text-white transition-colors bg-white/10 hover:bg-white/20 p-2 rounded-full outline-none">
                 <X size={20} />
               </button>
-              
+
               <div className="flex flex-row items-center space-x-4 sm:space-x-5 mb-5 sm:mb-8 mt-1 sm:mt-0">
                 <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-black text-2xl sm:text-4xl border-2 sm:border-4 border-blue-500/30 uppercase shadow-xl shrink-0">
-                   {viewModal.first_name?.[0]}{viewModal.last_name?.[0]}
+                  {viewModal.first_name?.[0]}{viewModal.last_name?.[0]}
                 </div>
                 <div className="flex-1 min-w-0">
                   <h2 className="text-2xl sm:text-4xl font-black tracking-tight mb-1.5 sm:mb-3 truncate">{viewModal.first_name} {viewModal.last_name}</h2>
@@ -455,19 +571,19 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               {/* Quick Glance Metrics Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                 <div className="bg-white/5 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex flex-col justify-center">
-                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><Phone size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5"/> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Phone</span></div>
+                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><Phone size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5" /> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Phone</span></div>
                   <p className="text-xs sm:text-base font-semibold truncate">{viewModal.phone_number}</p>
                 </div>
                 <div className="bg-white/5 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex flex-col justify-center">
-                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><User size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5"/> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Gender</span></div>
+                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><User size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5" /> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Gender</span></div>
                   <p className="text-xs sm:text-base font-semibold truncate">{viewModal.gender || 'Not Specified'}</p>
                 </div>
                 <div className="bg-white/5 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex flex-col justify-center">
-                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><Building2 size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5"/> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Branch</span></div>
+                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><Building2 size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5" /> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Branch</span></div>
                   <p className="text-xs sm:text-base font-semibold truncate">{viewModal.branch?.name || 'Unassigned'}</p>
                 </div>
                 <div className="bg-white/5 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex flex-col justify-center">
-                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><CalendarDays size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5"/> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Since</span></div>
+                  <div className="flex items-center text-slate-400 mb-1 sm:mb-1.5"><CalendarDays size={12} className="mr-1.5 sm:w-3.5 sm:h-3.5" /> <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Since</span></div>
                   <p className="text-xs sm:text-base font-semibold truncate">{new Date(viewModal.created_at).toLocaleDateString()}</p>
                 </div>
               </div>
@@ -475,25 +591,32 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
             {/* In-Modal Navigation Tabs (Slimmer on mobile) */}
             <div className="flex px-4 sm:px-8 bg-white border-b border-slate-200 shrink-0 overflow-x-auto custom-scrollbar shadow-sm z-10">
-              <button 
+              <button
                 onClick={() => setDetailsTab('overview')}
                 className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
               >
                 Profile Overview
               </button>
-              <button 
+              <button
                 onClick={() => setDetailsTab('loans')}
                 className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'loans' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
               >
                 Loan History <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.loans?.length || 0}</span>
               </button>
-              <button 
+              <button
                 onClick={() => setDetailsTab('documents')}
                 className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'documents' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
               >
                 KYC Documents <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.documents?.length || 0}</span>
               </button>
-              <button 
+
+              <button onClick={() => setDetailsTab('kin')} className={`py-4 px-2 mr-6 border-b-2 font-bold text-sm ${detailsTab === 'kin' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>
+                Next of Kin
+              </button>
+              <button onClick={() => setDetailsTab('guarantors')} className={`py-4 px-2 mr-6 border-b-2 font-bold text-sm ${detailsTab === 'guarantors' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>
+                Guarantors
+              </button>
+              <button
                 onClick={() => setDetailsTab('history')}
                 className={`py-3 sm:py-4 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
               >
@@ -503,7 +626,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
             {/* Modal Body */}
             <div className="p-4 sm:p-8 overflow-y-auto bg-slate-50 flex-1">
-              
+
               {/* TAB 1: OVERVIEW */}
               {detailsTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
@@ -570,7 +693,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                         <tbody className="divide-y divide-slate-100">
                           {viewModal.loans.map((loan: any) => (
                             <tr key={loan.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="p-4 sm:p-5 pl-4 sm:pl-6 font-mono text-xs sm:text-sm font-bold text-slate-700">#{loan.id.substring(0,8)}</td>
+                              <td className="p-4 sm:p-5 pl-4 sm:pl-6 font-mono text-xs sm:text-sm font-bold text-slate-700">#{loan.id.substring(0, 8)}</td>
                               <td className="p-4 sm:p-5 text-right font-black text-sm text-slate-900">{Number(loan.principal_amount).toLocaleString()}</td>
                               <td className="p-4 sm:p-5 text-right font-bold text-sm text-amber-600">{Number(loan.outstanding_balance).toLocaleString()}</td>
                               <td className="p-4 sm:p-5 text-center font-semibold text-sm text-slate-500">{loan.interest_rate}%</td>
@@ -586,7 +709,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                       <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4"><Banknote size={28} /></div>
                       <h3 className="text-lg font-bold text-slate-900 mb-1">No Loan History</h3>
                       <p className="text-slate-500 font-medium text-sm mb-6">This customer has not applied for any facilities yet.</p>
-                      <button 
+                      <button
                         onClick={() => { setViewModal(null); onNavigate && onNavigate('loan-application'); }}
                         className="px-5 py-2.5 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors outline-none text-sm sm:text-base"
                       >
@@ -600,10 +723,10 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               {/* TAB 3: KYC DOCUMENTS (IMAGE ONLY) */}
               {detailsTab === 'documents' && (
                 <div className="bg-white p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm min-h-[300px] flex flex-col">
-                  
+
                   <div className="flex flex-row justify-between items-center border-b border-slate-100 pb-4 mb-5 sm:mb-6">
                     <h3 className="font-black text-base sm:text-lg text-slate-900">KYC Records</h3>
-                    <button 
+                    <button
                       onClick={() => setUploadDocModalOpen(true)}
                       className="px-3 sm:px-4 py-2 bg-blue-50 text-blue-600 font-bold rounded-lg sm:rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center text-xs sm:text-sm outline-none"
                     >
@@ -612,61 +735,180 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                   </div>
 
                   {viewModal.documents && viewModal.documents.length > 0 ? (
-                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
-                        {viewModal.documents.map((doc: any) => (
-                           <div 
-                              key={doc.id} 
-                              className="group border border-slate-200 rounded-2xl p-2 bg-slate-50 hover:bg-white hover:border-blue-500 hover:shadow-md transition-all text-center relative overflow-hidden"
-                           >
-                              <div 
-                                onClick={() => setPreviewDoc(doc)}
-                                className="w-full h-24 sm:h-32 bg-slate-200 rounded-xl overflow-hidden mb-2 sm:mb-3 relative flex items-center justify-center cursor-pointer"
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+                      {viewModal.documents.map((doc: any) => (
+                        <div
+                          key={doc.id}
+                          className="group border border-slate-200 rounded-2xl p-2 bg-slate-50 hover:bg-white hover:border-blue-500 hover:shadow-md transition-all text-center relative overflow-hidden"
+                        >
+                          <div
+                            onClick={() => setPreviewDoc(doc)}
+                            className="w-full h-24 sm:h-32 bg-slate-200 rounded-xl overflow-hidden mb-2 sm:mb-3 relative flex items-center justify-center cursor-pointer"
+                          >
+                            <img src={doc.file_url} alt="Document" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                            <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Eye className="text-white" size={24} />
+                            </div>
+                          </div>
+                          <div className="px-1 sm:px-2 pb-1 flex justify-between items-end">
+                            <div className="text-left overflow-hidden">
+                              <p className="text-[10px] sm:text-xs font-bold text-slate-800 truncate" title={doc.document_type.replace(/_/g, ' ')}>
+                                {doc.document_type.replace(/_/g, ' ')}
+                              </p>
+                              <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+                                {new Date(doc.uploaded_at || doc.created_at || Date.now()).toLocaleDateString()}
+                              </p>
+                            </div>
+                            {canManage && (
+                              <button
+                                onClick={() => setDeleteDocModal(doc)}
+                                className="text-slate-400 hover:text-red-500 p-1 sm:p-1.5 transition-colors outline-none shrink-0"
+                                title="Delete Document"
                               >
-                                <img src={doc.file_url} alt="Document" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                                <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                  <Eye className="text-white" size={24} />
-                                </div>
-                              </div>
-                              <div className="px-1 sm:px-2 pb-1 flex justify-between items-end">
-                                <div className="text-left overflow-hidden">
-                                  <p className="text-[10px] sm:text-xs font-bold text-slate-800 truncate" title={doc.document_type.replace(/_/g, ' ')}>
-                                    {doc.document_type.replace(/_/g, ' ')}
-                                  </p>
-                                  <p className="text-[9px] text-slate-400 font-mono mt-0.5">
-                                    {new Date(doc.uploaded_at || doc.created_at || Date.now()).toLocaleDateString()}
-                                  </p>
-                                </div>
-                                {canManage && (
-                                  <button 
-                                    onClick={() => setDeleteDocModal(doc)}
-                                    className="text-slate-400 hover:text-red-500 p-1 sm:p-1.5 transition-colors outline-none shrink-0" 
-                                    title="Delete Document"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
-                              </div>
-                           </div>
-                        ))}
-                     </div>
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                     <div className="flex flex-col items-center justify-center flex-1 py-12 text-center">
-                        <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4"><ImageIcon size={28} /></div>
-                        <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">No Photos Uploaded</h3>
-                        <p className="text-slate-500 text-xs sm:text-sm mb-6 max-w-sm mx-auto">Photos of National ID, Passport, or Business Licenses will appear here.</p>
-                     </div>
+                    <div className="flex flex-col items-center justify-center flex-1 py-12 text-center">
+                      <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4"><ImageIcon size={28} /></div>
+                      <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">No Photos Uploaded</h3>
+                      <p className="text-slate-500 text-xs sm:text-sm mb-6 max-w-sm mx-auto">Photos of National ID, Passport, or Business Licenses will appear here.</p>
+                    </div>
                   )}
+                </div>
+              )}
+
+              {/* TAB: NEXT OF KIN */}
+              {detailsTab === 'kin' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-black text-lg text-slate-800">Current Next of Kin</h3>
+                      {viewModal.next_of_kin && (
+                        <button onClick={handleDeleteKin} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors outline-none" title="Delete Next of Kin">
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                    {viewModal.next_of_kin ? (
+                      <div className="space-y-4">
+                        <div className="flex justify-between border-b border-slate-100 pb-2">
+                          <span className="text-slate-500 text-sm">Full Name</span>
+                          <span className="font-bold">{viewModal.next_of_kin.full_name}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-100 pb-2">
+                          <span className="text-slate-500 text-sm">Relationship</span>
+                          <span className="font-bold">{viewModal.next_of_kin.relationship}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-100 pb-2">
+                          <span className="text-slate-500 text-sm">Phone</span>
+                          <span className="font-bold">{viewModal.next_of_kin.phone_number}</span>
+                        </div>
+                        {viewModal.next_of_kin.document_url && (
+                          <div className="mt-4">
+                            <span className="text-slate-500 text-sm block mb-2">Photo ID</span>
+                            <img src={viewModal.next_of_kin.document_url} alt="Kin ID" className="w-full h-48 object-cover rounded-xl border border-slate-200" />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-slate-500 text-sm">No Next of Kin recorded.</p>
+                    )}
+                  </div>
+
+                  {/* Add/Update Kin Form */}
+                  <form onSubmit={handleSaveKin} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm h-fit">
+                    <h3 className="font-black text-lg mb-4 text-slate-800">{viewModal.next_of_kin ? 'Update' : 'Add'} Next of Kin</h3>
+                    <div className="space-y-4">
+                      <input type="text" placeholder="Full Name" required value={kinForm.full_name} onChange={e => setKinForm({...kinForm, full_name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
+                      <input type="text" placeholder="Relationship (e.g., Sister, Father)" required value={kinForm.relationship} onChange={e => setKinForm({...kinForm, relationship: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                      <input type="text" placeholder="Phone Number" required value={kinForm.phone_number} onChange={e => setKinForm({...kinForm, phone_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                      <input type="text" placeholder="ID Number (Optional)" value={kinForm.id_number} onChange={e => setKinForm({...kinForm, id_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                      
+                      <div>
+                        <label className="text-sm font-bold text-slate-700 block mb-1">{viewModal.next_of_kin?.document_url ? 'Replace Photo ID' : 'Upload Photo ID'}</label>
+                        <input type="file" accept="image/*" onChange={e => setSelectedPhoto(e.target.files?.[0] || null)} className="w-full p-2 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                      </div>
+
+                      <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none">
+                        {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Saving...</> : (viewModal.next_of_kin ? 'Update Record' : 'Save Next of Kin')}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* TAB: GUARANTORS */}
+              {detailsTab === 'guarantors' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Existing Guarantors List */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm overflow-y-auto max-h-[600px] custom-scrollbar">
+                    <h3 className="font-black text-lg mb-4 text-slate-800">Registered Guarantors</h3>
+                    {viewModal.guarantors?.length > 0 ? (
+                      <div className="space-y-4">
+                        {viewModal.guarantors.map((g: any) => (
+                          <div key={g.id} className={`p-4 border rounded-xl transition-all ${editingGuarantorId === g.id ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'}`}>
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="font-black text-slate-900">{g.full_name} <span className="text-xs font-normal text-slate-500">({g.relationship})</span></p>
+                                <p className="text-sm text-slate-600 mb-2">{g.phone_number} | ID: {g.id_number || 'N/A'}</p>
+                              </div>
+                              <div className="flex space-x-1 opacity-80 hover:opacity-100">
+                                <button onClick={() => handleEditGuarantorClick(g)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors outline-none"><Edit size={16} /></button>
+                                <button onClick={() => handleDeleteGuarantor(g.id)} className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-colors outline-none"><Trash2 size={16} /></button>
+                              </div>
+                            </div>
+                            {g.document_url && (
+                              <img src={g.document_url} alt="Guarantor ID" className="w-full h-32 object-cover rounded-lg border border-slate-200 mt-2" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-slate-500 text-sm">No guarantors recorded.</p>
+                    )}
+                  </div>
+
+                  {/* Add/Edit Guarantor Form */}
+                  <form onSubmit={handleSaveGuarantor} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm h-fit">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-black text-lg text-slate-800">{editingGuarantorId ? 'Edit Guarantor' : 'Add Guarantor'}</h3>
+                      {editingGuarantorId && (
+                        <button type="button" onClick={() => { setEditingGuarantorId(null); setGuarForm({full_name:'', relationship:'', phone_number:'', id_number:''}); }} className="text-xs font-bold text-slate-400 hover:text-slate-600 outline-none">Cancel Edit</button>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <input type="text" placeholder="Full Name" required value={guarForm.full_name} onChange={e => setGuarForm({...guarForm, full_name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
+                      <input type="text" placeholder="Relationship" required value={guarForm.relationship} onChange={e => setGuarForm({...guarForm, relationship: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                      <input type="text" placeholder="Phone Number" required value={guarForm.phone_number} onChange={e => setGuarForm({...guarForm, phone_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                      <input type="text" placeholder="ID Number (Optional)" value={guarForm.id_number} onChange={e => setGuarForm({...guarForm, id_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                      
+                      <div>
+                        <label className="text-sm font-bold text-slate-700 block mb-1">Upload Photo ID</label>
+                        <input type="file" accept="image/*" onChange={e => setSelectedPhoto(e.target.files?.[0] || null)} className="w-full p-2 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                      </div>
+
+                      <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none">
+                        {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Saving...</> : (editingGuarantorId ? 'Update Record' : 'Add Guarantor')}
+                      </button>
+                    </div>
+                  </form>
                 </div>
               )}
 
               {/* TAB 4: INTERACTION HISTORY */}
               {detailsTab === 'history' && (
                 <div className="bg-white p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm text-center min-h-[300px] flex flex-col items-center justify-center">
-                    <div className="py-10">
-                      <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4"><Activity size={28} /></div>
-                      <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">No Recorded Interactions</h3>
-                      <p className="text-slate-500 text-xs sm:text-sm">Calls, emails, SMS alerts, and HQ approvals will be tracked here.</p>
-                    </div>
+                  <div className="py-10">
+                    <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4"><Activity size={28} /></div>
+                    <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">No Recorded Interactions</h3>
+                    <p className="text-slate-500 text-xs sm:text-sm">Calls, emails, SMS alerts, and HQ approvals will be tracked here.</p>
+                  </div>
                 </div>
               )}
 
@@ -675,20 +917,14 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
             {/* Bottom Footer actions */}
             <div className="bg-white p-4 sm:p-6 border-t border-slate-200 shrink-0 flex justify-between items-center">
               <div className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest hidden sm:block">
-                Profile ID: {viewModal.id.substring(0,8)}
+                Profile ID: {viewModal.id.substring(0, 8)}
               </div>
               <div className="flex w-full sm:w-auto space-x-3">
-                <button 
-                  onClick={() => setViewModal(null)} 
+                <button
+                  onClick={() => setViewModal(null)}
                   className="flex-1 sm:flex-none px-6 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors outline-none text-sm sm:text-base"
                 >
                   Close
-                </button>
-                <button 
-                  onClick={() => { setViewModal(null); onNavigate && onNavigate('loan-application'); }}
-                  className="flex-1 sm:flex-none px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md shadow-blue-500/20 active:scale-95 transition-all outline-none text-sm sm:text-base"
-                >
-                  Apply
                 </button>
               </div>
             </div>
@@ -701,7 +937,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setUploadDocModalOpen(false)}></div>
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md relative z-10 overflow-hidden animate-fade-in border border-slate-200">
-            
+
             <div className="bg-[#0B1121] p-5 sm:p-6 text-white flex justify-between items-center">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 bg-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center border border-blue-500/30">
@@ -718,10 +954,10 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               <div className="space-y-5">
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Document Classification</label>
-                  <select 
-                    required 
-                    value={uploadForm.type} 
-                    onChange={e => setUploadForm({...uploadForm, type: e.target.value})} 
+                  <select
+                    required
+                    value={uploadForm.type}
+                    onChange={e => setUploadForm({ ...uploadForm, type: e.target.value })}
                     className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900 text-sm"
                   >
                     <option value="NATIONAL_ID_FRONT">National ID (Front)</option>
@@ -731,15 +967,15 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                     <option value="KRA_PIN">KRA PIN Certificate (Photo)</option>
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Select File (Image only)</label>
                   <div className="relative border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
-                    <input 
-                      type="file" 
-                      required 
-                      accept="image/*" 
-                      onChange={e => setUploadForm({...uploadForm, file: e.target.files?.[0] || null})}
+                    <input
+                      type="file"
+                      required
+                      accept="image/*"
+                      onChange={e => setUploadForm({ ...uploadForm, file: e.target.files?.[0] || null })}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     />
                     <ImageIcon size={32} className="mx-auto text-slate-400 mb-2" />
@@ -770,9 +1006,9 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       {previewDoc && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-0 sm:p-4 bg-slate-900/95 sm:bg-slate-900/90 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setPreviewDoc(null)}></div>
-          
+
           <div className="relative z-10 w-full h-full sm:h-auto sm:max-w-4xl flex flex-col items-center">
-            
+
             {/* Top Toolbar */}
             <div className="w-full flex justify-between items-center p-4 sm:mb-4 text-white bg-slate-900/50 sm:bg-transparent">
               <div className="truncate pr-4">
@@ -781,17 +1017,17 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               </div>
               <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
                 {canManage && (
-                  <button 
-                    onClick={() => setDeleteDocModal(previewDoc)} 
+                  <button
+                    onClick={() => setDeleteDocModal(previewDoc)}
                     className="p-2 sm:px-4 sm:py-2 bg-red-500/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 rounded-full sm:rounded-xl transition-colors outline-none flex items-center"
                     title="Delete Image"
                   >
                     <Trash2 size={18} className="sm:mr-2" /> <span className="hidden sm:inline font-bold text-sm">Delete</span>
                   </button>
                 )}
-                <a 
-                  href={previewDoc.file_url} 
-                  target="_blank" 
+                <a
+                  href={previewDoc.file_url}
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="p-2 sm:px-4 sm:py-2 bg-blue-600 hover:bg-blue-700 rounded-full sm:rounded-xl font-bold flex items-center transition-colors outline-none text-sm sm:text-base"
                   title="Download Image"
@@ -806,7 +1042,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
             {/* Render Image Safely */}
             <div className="w-full flex-1 sm:bg-black/50 sm:rounded-2xl overflow-hidden sm:border border-white/10 flex items-center justify-center min-h-[30vh] sm:min-h-[50vh] p-2 sm:p-8">
-                <img src={previewDoc.file_url} alt="Document Preview" className="max-w-full h-auto max-h-[85vh] sm:max-h-[80vh] object-contain sm:rounded-xl shadow-none sm:shadow-2xl" />
+              <img src={previewDoc.file_url} alt="Document Preview" className="max-w-full h-auto max-h-[85vh] sm:max-h-[80vh] object-contain sm:rounded-xl shadow-none sm:shadow-2xl" />
             </div>
 
           </div>
@@ -823,7 +1059,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
             <p className="text-slate-500 text-sm mb-6">
               Are you sure you want to permanently delete the <strong>{deleteDocModal.document_type.replace(/_/g, ' ')}</strong> file? This action cannot be undone.
             </p>
-            
+
             <div className="flex space-x-3">
               <button onClick={() => setDeleteDocModal(null)} disabled={isProcessing} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors disabled:opacity-50 outline-none">Cancel</button>
               <button onClick={handleDeleteDocument} disabled={isProcessing} className="flex-1 flex justify-center items-center py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all active:scale-[0.98] disabled:opacity-50 outline-none">
@@ -839,7 +1075,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setCreateModalOpen(false)}></div>
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl relative z-10 overflow-hidden animate-fade-in border border-slate-200 flex flex-col max-h-[90vh]">
-            
+
             <div className="bg-[#0B1121] p-4 sm:p-6 text-white flex justify-between items-center shrink-0">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 bg-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center border border-blue-500/30">
@@ -853,24 +1089,24 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
             </div>
 
             <form onSubmit={handleCreateSubmit} className="p-4 sm:p-8 overflow-y-auto flex-1 custom-scrollbar">
-              
+
               <h6 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Personal Details</h6>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">First Name</label>
-                  <input type="text" required value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" />
+                  <input type="text" required value={formData.first_name} onChange={e => setFormData({ ...formData, first_name: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Last Name</label>
-                  <input type="text" required value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" />
+                  <input type="text" required value={formData.last_name} onChange={e => setFormData({ ...formData, last_name: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">National ID</label>
-                  <input type="text" required value={formData.national_id} onChange={e => setFormData({...formData, national_id: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-mono font-bold text-slate-900" />
+                  <input type="text" required value={formData.national_id} onChange={e => setFormData({ ...formData, national_id: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-mono font-bold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Gender</label>
-                  <select value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900">
+                  <select value={formData.gender} onChange={e => setFormData({ ...formData, gender: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900">
                     <option value="MALE">Male</option>
                     <option value="FEMALE">Female</option>
                   </select>
@@ -881,18 +1117,18 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Phone Number</label>
-                  <input type="text" required value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" placeholder="+254 7XX..." />
+                  <input type="text" required value={formData.phone_number} onChange={e => setFormData({ ...formData, phone_number: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" placeholder="+254 7XX..." />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Email Address (Optional)</label>
-                  <input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" placeholder="e.g. client@email.com" />
+                  <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" placeholder="e.g. client@email.com" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Allocated Branch</label>
-                  <select 
-                    required 
-                    value={formData.branch_id} 
-                    onChange={e => setFormData({...formData, branch_id: e.target.value})} 
+                  <select
+                    required
+                    value={formData.branch_id}
+                    onChange={e => setFormData({ ...formData, branch_id: e.target.value })}
                     className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900"
                   >
                     <option value="" disabled>-- Select Database Branch --</option>
@@ -903,7 +1139,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Physical Address (Optional)</label>
-                  <input type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" placeholder="e.g. Kilifi Town" />
+                  <input type="text" value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-900" placeholder="e.g. Kilifi Town" />
                 </div>
               </div>
 
@@ -923,7 +1159,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setEditModal(null)}></div>
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl relative z-10 overflow-hidden animate-fade-in border border-slate-200 flex flex-col max-h-[90vh]">
-            
+
             <div className="bg-[#0B1121] p-4 sm:p-6 text-white flex justify-between items-center shrink-0">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 bg-amber-500/20 text-amber-400 rounded-xl flex items-center justify-center border border-amber-500/30">
@@ -937,38 +1173,38 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
             </div>
 
             <form onSubmit={handleEditSubmit} className="p-4 sm:p-8 overflow-y-auto flex-1 custom-scrollbar">
-              
+
               <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-3 sm:space-y-0">
                 <div>
-                   <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">Administrative Action</label>
-                   <span className="font-bold text-amber-900 text-sm">Update KYC Verification Status</span>
+                  <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">Administrative Action</label>
+                  <span className="font-bold text-amber-900 text-sm">Update KYC Verification Status</span>
                 </div>
-                <select 
-                    value={editFormData.kyc_status} onChange={e => setEditFormData({...editFormData, kyc_status: e.target.value})} 
-                    className="w-full sm:w-auto p-2.5 bg-white border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none transition-all font-black text-slate-900 text-sm"
+                <select
+                  value={editFormData.kyc_status} onChange={e => setEditFormData({ ...editFormData, kyc_status: e.target.value })}
+                  className="w-full sm:w-auto p-2.5 bg-white border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none transition-all font-black text-slate-900 text-sm"
                 >
-                    <option value="PENDING">PENDING KYC</option>
-                    <option value="VERIFIED">VERIFIED</option>
-                    <option value="REJECTED">REJECTED (Deactivated)</option>
+                  <option value="PENDING">PENDING KYC</option>
+                  <option value="VERIFIED">VERIFIED</option>
+                  <option value="REJECTED">REJECTED (Deactivated)</option>
                 </select>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">First Name</label>
-                  <input type="text" required value={editFormData.first_name} onChange={e => setEditFormData({...editFormData, first_name: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
+                  <input type="text" required value={editFormData.first_name} onChange={e => setEditFormData({ ...editFormData, first_name: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Last Name</label>
-                  <input type="text" required value={editFormData.last_name} onChange={e => setEditFormData({...editFormData, last_name: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
+                  <input type="text" required value={editFormData.last_name} onChange={e => setEditFormData({ ...editFormData, last_name: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">National ID</label>
-                  <input type="text" required value={editFormData.national_id} onChange={e => setEditFormData({...editFormData, national_id: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-mono font-bold text-slate-900" />
+                  <input type="text" required value={editFormData.national_id} onChange={e => setEditFormData({ ...editFormData, national_id: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-mono font-bold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Gender</label>
-                  <select value={editFormData.gender} onChange={e => setEditFormData({...editFormData, gender: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900">
+                  <select value={editFormData.gender} onChange={e => setEditFormData({ ...editFormData, gender: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900">
                     <option value="MALE">Male</option>
                     <option value="FEMALE">Female</option>
                   </select>
@@ -978,18 +1214,18 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Phone Number</label>
-                  <input type="text" required value={editFormData.phone_number} onChange={e => setEditFormData({...editFormData, phone_number: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
+                  <input type="text" required value={editFormData.phone_number} onChange={e => setEditFormData({ ...editFormData, phone_number: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Email Address (Optional)</label>
-                  <input type="email" value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
+                  <input type="email" value={editFormData.email} onChange={e => setEditFormData({ ...editFormData, email: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Allocated Branch</label>
-                  <select 
-                    required 
-                    value={editFormData.branch_id} 
-                    onChange={e => setEditFormData({...editFormData, branch_id: e.target.value})} 
+                  <select
+                    required
+                    value={editFormData.branch_id}
+                    onChange={e => setEditFormData({ ...editFormData, branch_id: e.target.value })}
                     className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900"
                   >
                     {branches.map(b => (
@@ -999,7 +1235,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Physical Address (Optional)</label>
-                  <input type="text" value={editFormData.address} onChange={e => setEditFormData({...editFormData, address: e.target.value})} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
+                  <input type="text" value={editFormData.address} onChange={e => setEditFormData({ ...editFormData, address: e.target.value })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-semibold text-slate-900" />
                 </div>
               </div>
 
@@ -1025,9 +1261,9 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               Are you sure you want to permanently delete the profile for <strong>{deleteModal.first_name} {deleteModal.last_name}</strong>?
             </p>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-left mb-6">
-                <p className="text-xs font-bold text-slate-600 leading-relaxed"><span className="text-red-500">Security Rule:</span> To preserve accounting integrity, the system will block this deletion if the customer has any active or historical loans. If blocked, you must edit the profile and mark their KYC status as <span className="text-slate-900 bg-slate-200 px-1 rounded">REJECTED</span> to deactivate them instead.</p>
+              <p className="text-xs font-bold text-slate-600 leading-relaxed"><span className="text-red-500">Security Rule:</span> To preserve accounting integrity, the system will block this deletion if the customer has any active or historical loans. If blocked, you must edit the profile and mark their KYC status as <span className="text-slate-900 bg-slate-200 px-1 rounded">REJECTED</span> to deactivate them instead.</p>
             </div>
-            
+
             <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
               <button onClick={() => setDeleteModal(null)} disabled={isProcessing} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors disabled:opacity-50 outline-none">Cancel</button>
               <button onClick={handleDeleteSubmit} disabled={isProcessing} className="flex-[1.5] flex justify-center items-center py-3.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all active:scale-[0.98] disabled:opacity-50 outline-none">

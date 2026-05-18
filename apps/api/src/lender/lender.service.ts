@@ -1,7 +1,7 @@
 import { Injectable, ConflictException, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLenderDto } from './dto/create-lender.dto';
-import { MailService } from '../mail/mail.service'; // Adjust path if necessary
+import { MailService } from '../mail/mail.service'; 
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 
@@ -9,7 +9,7 @@ import * as crypto from 'crypto';
 export class LenderService {
   constructor(
     private prisma: PrismaService,
-    private mailService: MailService // Inject the new Mail Service
+    private mailService: MailService
   ) {}
 
   async onboardLender(data: CreateLenderDto) {
@@ -21,20 +21,15 @@ export class LenderService {
       throw new ConflictException('A lender with this email already exists.');
     }
 
-    // 1. Generate a secure, random temporary password
-    const tempPassword = crypto.randomBytes(6).toString('hex'); // e.g., 'a1b2c3d4e5f6'
+    const tempPassword = crypto.randomBytes(6).toString('hex'); 
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    // Execute as an atomic transaction to ensure Data Integrity
     const result = await this.prisma.$transaction(async (tx) => {
-      
-      // 2. Fetch the ID for the 'Lender Admin' role
       const adminRole = await tx.role.findUnique({ where: { name: 'Lender Admin' } });
       if (!adminRole) {
         throw new InternalServerErrorException('Critical Error: Lender Admin role not found in database.');
       }
 
-      // 3. Create the root Lender organization
       const lender = await tx.lender.create({
         data: {
           name: data.name,
@@ -46,7 +41,6 @@ export class LenderService {
         },
       });
 
-      // 4. Provision the default Headquarters branch
       const branch = await tx.branch.create({
         data: {
           lender_id: lender.id,
@@ -55,7 +49,6 @@ export class LenderService {
         },
       });
 
-      // 5. Create the initial root User account for this Lender
       const rootUser = await tx.user.create({
         data: {
           email: data.email,
@@ -72,8 +65,6 @@ export class LenderService {
       return { lender, default_branch: branch, admin_user: rootUser };
     });
 
-    // 6. After the database transaction is successfully committed, send the email!
-    // We send the plain-text `tempPassword` via email, while the DB only stores the hash.
     await this.mailService.sendLenderWelcomeEmail(data.email, data.name, tempPassword);
 
     return {
@@ -89,12 +80,12 @@ export class LenderService {
     });
   }
 
-  // Add these inside your LenderService class
-  async updateLender(id: string, data: any) {
+  // --- FIXED AUDIT LOGGING ---
+  async updateLender(adminUser: any, id: string, data: any) {
     const lender = await this.prisma.lender.findUnique({ where: { id } });
     if (!lender) throw new NotFoundException('Lender not found.');
 
-    return this.prisma.lender.update({
+    const updatedLender = await this.prisma.lender.update({
       where: { id },
       data: {
         name: data.name,
@@ -104,26 +95,53 @@ export class LenderService {
         registration_number: data.registration_number,
       }
     });
+
+    // Write directly to your AuditLog schema
+    // Use this if your schema has user_id, lender_id, and entity_type
+    await this.prisma.auditLog.create({
+      data: {
+        user_id: adminUser.id || adminUser.sub,
+        action: 'UPDATE_LENDER_PROFILE',
+        entity_type: 'Lender',
+        entity_id: id,
+        details: { message: `Updated configuration fields for institution: ${updatedLender.name}` }
+      }
+    });
+
+    return updatedLender;
   }
 
-  async toggleStatus(id: string) {
+  // --- FIXED AUDIT LOGGING ---
+  async toggleStatus(adminUser: any, id: string) {
     const lender = await this.prisma.lender.findUnique({ where: { id } });
     if (!lender) throw new NotFoundException('Lender not found.');
 
     const newStatus = lender.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
 
-    return this.prisma.lender.update({
+    const updatedLender = await this.prisma.lender.update({
       where: { id },
       data: { status: newStatus }
     });
+
+    // Write directly to your AuditLog schema
+    // Use this if your schema has user_id, lender_id, and entity_type
+    await this.prisma.auditLog.create({
+      data: {
+        user_id: adminUser.id || adminUser.sub,
+        action: 'UPDATE_LENDER_PROFILE',
+        entity_type: 'Lender',
+        entity_id: id,
+        details: { message: `Updated configuration fields for institution: ${updatedLender.name}` }
+      }
+    });
+
+    return updatedLender;
   }
 
   async deleteLender(id: string) {
     const lender = await this.prisma.lender.findUnique({ where: { id } });
     if (!lender) throw new NotFoundException('Lender not found.');
 
-    // Note: Due to cascading relations, deleting a lender will delete all their branches and users.
-    // In a production financial system, you might prefer to only 'SUSPEND' rather than hard delete.
     return this.prisma.lender.delete({ where: { id } });
   }
 }

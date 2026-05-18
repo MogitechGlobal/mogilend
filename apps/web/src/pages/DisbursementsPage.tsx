@@ -160,7 +160,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
               className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
             />
           </div>
-          {/* UPDATED: Navigates to loan-application instead of originate */}
           <button 
             onClick={() => onNavigate && onNavigate('loan-application')}
             className="flex items-center space-x-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 hover:bg-blue-700 active:scale-95 transition-all outline-none"
@@ -170,7 +169,7 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
         </div>
       </div>
 
-      {/* Advanced KPI Stats Grid (4 Columns) */}
+      {/* Advanced KPI Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between border-l-4 border-l-amber-400 hover:-translate-y-1 transition-transform">
           <div>
@@ -318,7 +317,7 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
         )}
       </div>
 
-      {/* --- ACTION VIEW MODAL (Details, Amortization, & Transaction History View) --- */}
+      {/* --- ACTION VIEW MODAL --- */}
       {viewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setViewModal(null)}></div>
@@ -386,7 +385,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                 Overview
               </button>
               
-              {/* Amortization schedule now available for Pending, Disbursed, Defaulted and Completed */}
               {['PENDING', 'DISBURSED', 'DEFAULTED', 'COMPLETED'].includes(viewModal.status) && (
                 <button 
                   onClick={() => setDetailsTab('schedule')}
@@ -396,7 +394,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                 </button>
               )}
 
-              {/* Transactions Tab */}
               {['DISBURSED', 'DEFAULTED', 'COMPLETED'].includes(viewModal.status) && (
                 <button 
                   onClick={() => setDetailsTab('transactions')}
@@ -413,7 +410,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
               {/* TAB 1: OVERVIEW */}
               {detailsTab === 'overview' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Loan Configuration Panel */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                     <div className="flex items-center space-x-2 mb-6 text-slate-800">
                       <CreditCard size={20} className="text-blue-500" />
@@ -443,7 +439,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                     </div>
                   </div>
 
-                  {/* Borrower Profile Panel */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                     <div className="flex items-center space-x-2 mb-6 text-slate-800">
                       <User size={20} className="text-blue-500" />
@@ -475,7 +470,7 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                 </div>
               )}
 
-              {/* TAB 2: AMORTIZATION SCHEDULE */}
+              {/* TAB 2: AMORTIZATION SCHEDULE - CORRECTED TERM PARSING */}
               {detailsTab === 'schedule' && (
                 <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                    <table className="w-full text-left border-collapse">
@@ -487,23 +482,56 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                        </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
-                       {Array.from({ length: viewModal.loan_product?.default_term || 1 }).map((_, i) => {
-                         const term = viewModal.loan_product?.default_term || 1;
-                         const monthlyPay = viewModal.total_owed / term;
+                       {Array.from({ length: viewModal.term || viewModal.loan_product?.default_term || 1 }).map((_, i) => {
+                         // Use the specific loan's actual term applied for, fallback to product default
+                         const term = viewModal.term || viewModal.loan_product?.default_term || 1;
+                         const installmentPay = viewModal.total_owed / term;
                          
-                         // Generate progressive due dates
+                         const cycle = viewModal.loan_product?.repayment_cycle || 'Monthly';
                          const dueDate = new Date(viewModal.disbursed_at || viewModal.created_at);
-                         dueDate.setMonth(dueDate.getMonth() + i + 1);
+                         let periodLabel = 'Monthly';
+                         
+                         switch (cycle) {
+                           case 'Daily':
+                             dueDate.setDate(dueDate.getDate() + (i + 1));
+                             periodLabel = 'Daily';
+                             break;
+                           case 'Weekly':
+                             dueDate.setDate(dueDate.getDate() + (i + 1) * 7);
+                             periodLabel = 'Weekly';
+                             break;
+                           case 'Quarterly':
+                             dueDate.setMonth(dueDate.getMonth() + (i + 1) * 3);
+                             periodLabel = 'Quarterly';
+                             break;
+                           case 'Semi-Annually':
+                             dueDate.setMonth(dueDate.getMonth() + (i + 1) * 6);
+                             periodLabel = 'Semi-Annual';
+                             break;
+                           case 'Annually':
+                             dueDate.setFullYear(dueDate.getFullYear() + (i + 1));
+                             periodLabel = 'Annual';
+                             break;
+                           case 'None':
+                             dueDate.setMonth(dueDate.getMonth() + (i + 1));
+                             periodLabel = 'Term';
+                             break;
+                           case 'Monthly':
+                           default:
+                             dueDate.setMonth(dueDate.getMonth() + (i + 1));
+                             periodLabel = 'Monthly';
+                             break;
+                         }
 
                          return (
                            <tr key={i} className="hover:bg-slate-50 transition-colors">
-                             <td className="p-4 pl-6 text-sm font-bold text-slate-700">Month {i + 1}</td>
+                             <td className="p-4 pl-6 text-sm font-bold text-slate-700">{periodLabel} {i + 1}</td>
                              <td className="p-4 text-sm font-semibold text-slate-600 flex items-center">
                                 <CalendarDays size={14} className="mr-2 text-slate-400" />
                                 {dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                              </td>
                              <td className="p-4 pr-6 text-sm font-black text-slate-900 text-right">
-                               KES {monthlyPay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                               KES {installmentPay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                              </td>
                            </tr>
                          );
@@ -568,7 +596,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                 Close
               </button>
 
-              {/* Action 1: ALWAYS Show "View Profile" */}
               <button 
                 onClick={() => { setViewModal(null); onNavigate && onNavigate('borrowers'); }}
                 className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors flex items-center outline-none shadow-sm"
@@ -576,7 +603,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                 <User size={18} className="mr-2 text-blue-500" /> View Profile
               </button>
               
-              {/* Contextual Actions for PENDING */}
               {viewModal.status === 'PENDING' && (
                 <>
                   <button 
@@ -594,10 +620,8 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                 </>
               )}
 
-              {/* Contextual Actions for DISBURSED */}
               {['DISBURSED', 'DEFAULTED'].includes(viewModal.status) && (
                 <>
-                  {/* Native "Receive Payment" functionality inside the Queue! */}
                   <button 
                     onClick={() => openReceivePayment(viewModal)}
                     className="px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-500/20 active:scale-95 transition-all flex items-center outline-none"
@@ -633,7 +657,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
             <form onSubmit={handleReceivePayment} className="p-8">
               <div className="space-y-5">
                 
-                {/* Pre-selected Loan Info */}
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center">
                   <div>
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block mb-1">Target Account</span>

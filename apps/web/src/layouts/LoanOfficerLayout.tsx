@@ -160,6 +160,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
               <NavLink path="system-config" label="System Configuration" icon={Sliders} />
               <NavLink path="register-staff" label="User Management" icon={UserPlus} />
               <NavLink path="branch-management" label="Branch Management" icon={UserPlus} />
+              <NavLink path="audit-ledger" label="Audit Ledger" icon={FileClock} />
             </NavGroup>
           )}
         </nav>

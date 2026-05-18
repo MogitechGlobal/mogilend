@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import useAuthStore from '../store/authStore';
 import { api } from '../lib/api';
 import { 
-  Plus, Package, Percent, Clock, 
-  Banknote, MoreVertical, ArrowLeft, Loader2, CheckCircle2,
-  Calculator, ShieldAlert
+  Plus, Package, Clock, Banknote, ArrowLeft, Loader2, CheckCircle2,
+  ShieldAlert, Edit, Trash2, Power, Search, Filter, BarChart3
 } from 'lucide-react';
 
 export const LoanProductsPage = () => {
@@ -15,23 +14,31 @@ export const LoanProductsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
   // Form State
   const initialFormState = {
     name: '',
-    selected_profile_id: '', // Used to track dropdown selection
+    selected_profile_id: '', 
     interest_rate: '',
     interest_type: '',
     penalty_rate: '',
     repayment_cycle: 'Monthly',
     min_amount: '',
     max_amount: '',
-    default_term: '1'
+    default_term: '1',
+    status: 'ACTIVE'
   };
 
   const [formData, setFormData] = useState(initialFormState);
 
-  // Fetch Products & Rate Profiles simultaneously
+  // --- ROLE BASED ACCESS CONTROL ---
+  const canManageProducts = user?.role === 'Super Admin' || user?.role === 'Lender Admin';
+
   const loadData = async () => {
     setIsLoading(true);
     try {
@@ -41,286 +48,363 @@ export const LoanProductsPage = () => {
         api.get(`/loan-products?lender_id=${activeLenderId}`),
         api.get(`/interest-rates?lender_id=${activeLenderId}`)
       ]);
-      
+
       setProducts(productsRes.data);
       setRateProfiles(ratesRes.data);
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      // Fallback mock data for UI preview
-      setProducts([
-        { id: 1, name: 'Salary Advance', interest_rate: 5, interest_type: 'Flat Rate', min_amount: 1000, max_amount: 50000, default_term: 1, status: 'Active' },
-        { id: 2, name: 'SME Business Loan', interest_rate: 12, interest_type: 'Reducing Balance', min_amount: 50000, max_amount: 1000000, default_term: 12, status: 'Active' }
-      ]);
-      setRateProfiles([
-        { id: 'mock-1', profile_name: 'Standard SME Tier', calculation_method: 'Reducing Balance', base_rate: 12.5, penalty_rate: 3.0, status: 'Active' },
-        { id: 'mock-2', profile_name: 'Micro-Advance Tier', calculation_method: 'Flat Rate', base_rate: 5.0, penalty_rate: 5.0, status: 'Active' }
-      ]);
+      console.error('Failed to load data:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    if (user) loadData();
+    loadData();
   }, [user]);
 
-  // Handle Rate Profile Selection
-  const handleProfileSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleProfileChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const profileId = e.target.value;
-    if (!profileId) {
-      setFormData({ ...formData, selected_profile_id: '', interest_rate: '', interest_type: '', penalty_rate: '' });
-      return;
-    }
+    const selectedProfile = rateProfiles.find(p => p.id === profileId);
 
-    // Find the profile and map its values to the product form payload
-    const profile = rateProfiles.find(p => p.id.toString() === profileId);
-    if (profile) {
+    if (selectedProfile) {
       setFormData({
         ...formData,
         selected_profile_id: profileId,
-        interest_rate: profile.base_rate,
-        interest_type: profile.calculation_method,
-        penalty_rate: profile.penalty_rate || 0
+        interest_rate: selectedProfile.base_rate.toString(),
+        interest_type: selectedProfile.calculation_method,
+        penalty_rate: selectedProfile.penalty_rate.toString(),
       });
+    } else {
+      setFormData({ ...formData, selected_profile_id: '' });
+    }
+  };
+
+  const openCreateForm = () => {
+    setEditingId(null);
+    setFormData(initialFormState);
+    setShowForm(true);
+  };
+
+  const openEditForm = (product: any) => {
+    setEditingId(product.id);
+    setFormData({
+      name: product.name,
+      selected_profile_id: '', // Requires re-selection or mapping if saved in DB
+      interest_rate: product.interest_rate.toString(),
+      interest_type: product.interest_type,
+      penalty_rate: (product.penalty_rate || 0).toString(),
+      repayment_cycle: product.repayment_cycle || 'Monthly',
+      min_amount: product.min_amount.toString(),
+      max_amount: product.max_amount.toString(),
+      default_term: product.default_term.toString(),
+      status: product.status || 'ACTIVE'
+    });
+    setShowForm(true);
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to completely delete the "${name}" product? This is destructive and may affect historical records. Consider suspending it instead.`)) return;
+    
+    try {
+      await api.delete(`/loan-products/${id}`);
+      loadData();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to delete product.');
+    }
+  };
+
+  const handleToggleStatus = async (id: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      await api.patch(`/loan-products/${id}/toggle`, { status: newStatus });
+      loadData();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to change product status.');
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    
     try {
-      // We exclude selected_profile_id from the payload to match your Prisma Schema
-      const { selected_profile_id, ...payload } = formData;
+      const payload = {
+        ...formData,
+        lender_id: user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e'
+      };
       
-      await api.post('/loan-products', { 
-        ...payload, 
-        lender_id: user?.lender_id 
-      });
+      if (editingId) {
+        await api.patch(`/loan-products/${editingId}`, payload);
+      } else {
+        await api.post('/loan-products', payload);
+      }
+      
       setShowForm(false);
+      setFormData(initialFormState);
       loadData();
-      setFormData(initialFormState); // Reset
-    } catch (err) {
-      alert('Failed to create product. Please try again.');
+    } catch (error) {
+      console.error('Failed to save product:', error);
+      alert('Failed to save loan product.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Filter Logic
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const productStatus = p.status || 'ACTIVE'; // Fallback for old records
+    const matchesStatus = statusFilter === 'ALL' || productStatus === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   return (
-    <div className="animate-fade-in max-w-7xl mx-auto pb-10">
+    <div className="max-w-7xl mx-auto animate-fade-in pb-10 px-4 sm:px-6 lg:px-8">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 pt-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Loan Products</h1>
-          <p className="text-slate-500 font-medium mt-1">Configure and manage your institution's credit offerings.</p>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center">
+            <Package size={28} className="mr-3 text-blue-600 shrink-0" /> Loan Products
+          </h1>
+          <p className="text-slate-500 font-medium mt-1 text-sm sm:text-base">Configure and manage your lending portfolio offerings.</p>
         </div>
-        
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-bold transition-all active:scale-95 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/50 ${
-            showForm 
-              ? 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50' 
-              : 'bg-blue-600 text-white shadow-blue-500/30 hover:bg-blue-700 hover:shadow-md'
-          }`}
-        >
-          {showForm ? (
-            <><ArrowLeft size={18} /> <span>Back to Products</span></>
-          ) : (
-            <><Plus size={18} /> <span>New Product</span></>
-          )}
-        </button>
+        {!showForm && canManageProducts && (
+          <button onClick={openCreateForm} className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-slate-900 text-white px-5 py-3 sm:py-2.5 rounded-xl font-bold hover:bg-slate-800 transition-colors shadow-sm outline-none shrink-0">
+            <Plus size={18} /> <span>New Product</span>
+          </button>
+        )}
       </div>
 
       {showForm ? (
-        /* --- CREATE PRODUCT FORM --- */
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm max-w-4xl mx-auto animate-fade-in">
-          <div className="flex items-center space-x-3 mb-8 pb-6 border-b border-slate-100">
-            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-              <Package size={24} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">Product Configuration</h2>
-              <p className="text-sm text-slate-500 font-medium">Define the core parameters for this credit facility.</p>
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden max-w-4xl animate-in slide-in-from-bottom-4 duration-500">
+          <div className="p-4 sm:p-6 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <button onClick={() => setShowForm(false)} className="p-2 bg-white rounded-full border border-slate-200 text-slate-500 hover:text-slate-900 transition-colors outline-none shadow-sm"><ArrowLeft size={16} /></button>
+              <h2 className="text-lg sm:text-xl font-black text-slate-800">{editingId ? 'Edit Product Configuration' : 'Create Loan Product'}</h2>
             </div>
           </div>
-
-          <form onSubmit={handleSubmit} className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Product Name</label>
-                <input 
-                  type="text" required
-                  value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})}
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-900"
-                  placeholder="e.g. Salary Advance, SME Business Loan"
-                />
-              </div>
-
-              {/* INTEGRATED INTEREST RATE MATRIX DROPDOWN */}
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Link to Interest Rate Profile</label>
-                <div className="relative">
-                  <Percent size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <select 
-                    required
-                    value={formData.selected_profile_id} 
-                    onChange={handleProfileSelect}
-                    className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-700 appearance-none"
-                  >
-                    <option value="" disabled>-- Select an active Rate Profile --</option>
-                    {rateProfiles.filter(r => r.status === 'Active').map(profile => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.profile_name} ({profile.base_rate}%)
-                      </option>
-                    ))}
-                  </select>
+              {/* Product Identity */}
+              <div className="space-y-5">
+                <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center border-b border-slate-100 pb-2"><Package size={16} className="mr-2" /> Product Identity</h3>
+                
+                <div>
+                  <label className="text-[10px] font-bold text-slate-700 block mb-1">Product Name</label>
+                  <input type="text" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold text-slate-900" placeholder="e.g., Premium Business Loan" />
                 </div>
 
-                {/* Read-only preview badge that appears when a profile is selected */}
-                {formData.selected_profile_id && (
-                  <div className="mt-3 p-4 bg-blue-50/50 border border-blue-100 rounded-xl flex flex-wrap gap-4 items-center animate-fade-in">
-                     <div className="flex items-center space-x-2 text-sm text-blue-800 font-semibold bg-blue-100/50 px-3 py-1.5 rounded-lg">
-                       <Calculator size={14} /> <span>{formData.interest_type}</span>
-                     </div>
-                     <div className="flex items-center space-x-2 text-sm text-emerald-700 font-semibold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
-                       <Percent size={14} /> <span>Base: {formData.interest_rate}%</span>
-                     </div>
-                     <div className="flex items-center space-x-2 text-sm text-red-600 font-semibold bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
-                       <ShieldAlert size={14} /> <span>Penalty: {formData.penalty_rate}%</span>
-                     </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-700 block mb-1">Link Interest Rate Matrix</label>
+                  {rateProfiles.length === 0 ? (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center text-amber-700 text-xs font-bold">
+                      <ShieldAlert size={14} className="mr-2 shrink-0" />
+                      You must create an Interest Rate Profile first.
+                    </div>
+                  ) : (
+                    <select required={!editingId} value={formData.selected_profile_id} onChange={handleProfileChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-slate-700 appearance-none">
+                      <option value="" disabled>{editingId ? 'Leave blank to keep current rates...' : 'Select a rate profile...'}</option>
+                      {rateProfiles.map(profile => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.profile_name} ({profile.base_rate}% {profile.calculation_method})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Read-only feedback fields from Matrix */}
+                {(formData.interest_rate) && (
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl animate-fade-in">
+                    <div>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Applied Base Rate</p>
+                      <p className="text-sm font-black text-blue-700">{formData.interest_rate}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Applied Penalty</p>
+                      <p className="text-sm font-black text-red-600">{formData.penalty_rate}%</p>
+                    </div>
+                    <div className="col-span-2 pt-2 border-t border-blue-200/50 mt-1">
+                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Calculation Method</p>
+                       <p className="text-xs font-bold text-slate-700">{formData.interest_type}</p>
+                    </div>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Repayment Cycle</label>
-                <select 
-                  value={formData.repayment_cycle} 
-                  onChange={e => setFormData({...formData, repayment_cycle: e.target.value})}
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-slate-700"
-                >
-                  <option value="Daily">Daily</option>
-                  <option value="Weekly">Weekly</option>
-                  <option value="Monthly">Monthly</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-slate-700">Minimum Amount (KES)</label>
-                <div className="relative">
-                  <Banknote size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="number" required
-                    value={formData.min_amount} onChange={e => setFormData({...formData, min_amount: e.target.value})}
-                    className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-mono font-bold text-slate-900"
-                    placeholder="1,000"
-                  />
+              {/* Repayment & Limits */}
+              <div className="space-y-5">
+                <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center border-b border-slate-100 pb-2"><Banknote size={16} className="mr-2" /> Repayment & Limits</h3>
+                
+                <div>
+                  <label className="text-[10px] font-bold text-slate-700 block mb-1">Repayment Cycle</label>
+                  <select required value={formData.repayment_cycle} onChange={e => setFormData({...formData, repayment_cycle: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold text-slate-900 appearance-none">
+                    <option value="Daily">Daily</option>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Monthly">Monthly</option>
+                    <option value="Quarterly">Quarterly</option>
+                    <option value="Semi-Annually">Semi-Annually</option>
+                    <option value="Annually">Annually</option>
+                    <option value="None">None (Simple Interest)</option>
+                  </select>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-slate-700">Maximum Amount (KES)</label>
-                <div className="relative">
-                  <Banknote size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="number" required
-                    value={formData.max_amount} onChange={e => setFormData({...formData, max_amount: e.target.value})}
-                    className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-mono font-bold text-slate-900"
-                    placeholder="1,000,000"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">Min Amount (KES)</label>
+                    <input type="number" required value={formData.min_amount} onChange={e => setFormData({...formData, min_amount: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-slate-900 font-mono" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">Max Amount (KES)</label>
+                    <input type="number" required value={formData.max_amount} onChange={e => setFormData({...formData, max_amount: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-slate-900 font-mono" />
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Default Term Duration (Months)</label>
-                <div className="relative">
-                  <Clock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="number" required
-                    value={formData.default_term} onChange={e => setFormData({...formData, default_term: e.target.value})}
-                    className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-mono font-bold text-slate-900"
-                    placeholder="1"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">Default Term (Cycles)</label>
+                    <input type="number" required value={formData.default_term} onChange={e => setFormData({...formData, default_term: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-slate-900 font-mono" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">Initial Status</label>
+                    <select required value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold text-slate-900 appearance-none">
+                      <option value="ACTIVE">Active</option>
+                      <option value="INACTIVE">Inactive (Hidden)</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 flex justify-end">
-              <button 
-                type="submit" disabled={isSubmitting}
-                className="flex items-center space-x-2 bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 active:scale-95 transition-all disabled:bg-slate-300 disabled:shadow-none"
-              >
-                {isSubmitting ? <><Loader2 size={20} className="animate-spin" /><span>Saving Product...</span></> : <><CheckCircle2 size={20} /><span>Publish Product</span></>}
+            <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3">
+              <button type="button" onClick={() => setShowForm(false)} className="px-6 py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors w-full sm:w-auto">Cancel</button>
+              <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 outline-none w-full sm:w-auto">
+                {isSubmitting ? <><Loader2 size={18} className="animate-spin"/> <span>Saving...</span></> : <><CheckCircle2 size={18} /><span>{editingId ? 'Update Product' : 'Launch Product'}</span></>}
               </button>
             </div>
           </form>
         </div>
       ) : (
-        /* --- PRODUCT GRID VIEW --- */
         <>
+          {/* Advanced Toolbar */}
+          {!isLoading && products.length > 0 && (
+            <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6 gap-4">
+              <div className="relative w-full md:max-w-md">
+                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text" placeholder="Search products..." 
+                  value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" 
+                />
+              </div>
+              <div className="flex items-center space-x-2 w-full md:w-auto">
+                <Filter size={16} className="text-slate-400" />
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest mr-2">Filter:</span>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="flex-1 md:w-auto py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 outline-none">
+                  <option value="ALL">All Products</option>
+                  <option value="ACTIVE">Active Only</option>
+                  <option value="INACTIVE">Suspended Only</option>
+                </select>
+              </div>
+            </div>
+          )}
+
           {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="h-64 bg-slate-100 rounded-3xl animate-pulse"></div>
-              ))}
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+              <Loader2 size={40} className="animate-spin mb-4 text-blue-500" />
+              <p className="font-bold text-sm uppercase tracking-widest">Loading Portfolio...</p>
             </div>
           ) : products.length === 0 ? (
-            <div className="text-center bg-white p-16 rounded-3xl border border-dashed border-slate-300">
-              <Package size={48} className="mx-auto text-slate-300 mb-4" />
-              <h3 className="text-lg font-bold text-slate-900 mb-1">No Loan Products Configured</h3>
-              <p className="text-slate-500">Click "New Product" above to create your first credit facility.</p>
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col items-center justify-center p-12 text-center">
+              <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 mb-6 border border-blue-100 shadow-inner">
+                <Package size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mb-2 tracking-tight">No Loan Products Yet</h3>
+              <p className="text-slate-500 font-medium max-w-sm mx-auto mb-8 text-sm">
+                Build your first loan product by combining an interest rate matrix with repayment terms and limits.
+              </p>
+              {canManageProducts && (
+                <button onClick={openCreateForm} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all flex items-center space-x-2 outline-none">
+                  <Plus size={18} /> <span>Build Product</span>
+                </button>
+              )}
             </div>
+          ) : filteredProducts.length === 0 ? (
+             <div className="text-center py-12 text-slate-500 font-medium">No products match your search criteria.</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {products.map((product) => (
-                <div key={product.id} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm relative group hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col">
-                  
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center border border-indigo-100/50">
-                      <Package size={24} />
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-widest border border-emerald-100">
-                        {product.status || 'Active'}
-                      </span>
-                      <button className="text-slate-400 hover:text-slate-900 transition-colors p-1 outline-none focus:ring-2 focus:ring-blue-500/50 rounded-lg">
-                        <MoreVertical size={18} />
-                      </button>
-                    </div>
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredProducts.map(product => {
+                const isActive = product.status !== 'INACTIVE';
+                // Simulated usage percentage for UI purposes (Backend to replace with real metric)
+                const usagePercentage = product.usage_percentage || Math.floor(Math.random() * 40) + 15; 
 
-                  <h3 className="font-black text-xl text-slate-900 mb-1 tracking-tight">{product.name}</h3>
-                  <p className="text-slate-500 text-sm font-semibold mb-6 flex items-center">
-                     <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-2"></span>
-                     {product.interest_type || 'Custom Rate'}
-                  </p>
-                  
-                  <div className="space-y-4 mb-8 flex-1">
-                    <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Interest Rate</span>
-                      <span className="font-black text-blue-600 text-lg">{product.interest_rate}%</span>
-                    </div>
+                return (
+                  <div key={product.id} className={`bg-white rounded-3xl p-6 border shadow-sm transition-all flex flex-col h-full ${isActive ? 'border-slate-200 hover:shadow-md' : 'border-slate-200 opacity-75 grayscale-[20%]'}`}>
                     
-                    <div className="flex justify-between items-center px-2">
-                      <span className="text-sm font-semibold text-slate-500">Limits</span>
-                      <span className="font-mono text-sm font-bold text-slate-800">
-                        K {Number(product.min_amount).toLocaleString()} - {Number(product.max_amount).toLocaleString()}
+                    <div className="flex justify-between items-start mb-5 relative z-10">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${isActive ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                        <Banknote size={20} />
+                      </div>
+                      <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                        {isActive ? 'Active' : 'Suspended'}
                       </span>
                     </div>
 
-                    <div className="flex justify-between items-center px-2">
-                      <span className="text-sm font-semibold text-slate-500">Standard Term</span>
-                      <span className="text-sm font-bold text-slate-800">{product.default_term} {product.repayment_cycle || 'Month'}(s)</span>
-                    </div>
-                  </div>
+                    <h3 className="text-lg font-black text-slate-900 mb-1 line-clamp-1" title={product.name}>{product.name}</h3>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-5 border-b border-slate-100 pb-4">{product.interest_type}</p>
 
-                  <button className="w-full py-3 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-colors outline-none focus:ring-2 focus:ring-blue-500/20">
-                    Edit Configuration
-                  </button>
-                </div>
-              ))}
+                    <div className="space-y-3 mb-6 flex-1">
+                      <div className="flex justify-between items-center p-3 rounded-xl bg-blue-50/50 border border-blue-100">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Interest Rate</span>
+                        <span className={`font-black text-lg ${isActive ? 'text-blue-600' : 'text-slate-500'}`}>{product.interest_rate}%</span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center px-2">
+                        <span className="text-sm font-semibold text-slate-500">Limits</span>
+                        <span className="font-mono text-sm font-bold text-slate-800">
+                          K{Number(product.min_amount).toLocaleString()} - K{Number(product.max_amount).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center px-2">
+                        <span className="text-sm font-semibold text-slate-500">Default Term</span>
+                        <span className="text-sm font-bold text-slate-800">{product.default_term} {product.repayment_cycle}(s)</span>
+                      </div>
+                    </div>
+
+                    {/* --- PORTFOLIO USAGE ANALYTICS --- */}
+                    <div className="mb-6 bg-slate-50 rounded-xl p-3 border border-slate-100">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center">
+                          <BarChart3 size={12} className="mr-1" /> Portfolio Usage
+                        </span>
+                        <span className="text-xs font-black text-slate-700">{usagePercentage}%</span>
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-1.5">
+                        <div className={`h-1.5 rounded-full ${isActive ? 'bg-blue-500' : 'bg-slate-400'}`} style={{ width: `${usagePercentage}%` }}></div>
+                      </div>
+                    </div>
+
+                    {/* --- ADMIN ACTION PANEL --- */}
+                    {canManageProducts && (
+                      <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-100 mt-auto">
+                        <button onClick={() => openEditForm(product)} className="flex items-center justify-center p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-colors outline-none" title="Edit Configuration">
+                          <Edit size={16} />
+                        </button>
+                        <button onClick={() => handleToggleStatus(product.id, product.status || 'ACTIVE')} className={`flex items-center justify-center p-2.5 rounded-xl transition-colors outline-none ${isActive ? 'bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white'}`} title={isActive ? 'Suspend Product' : 'Activate Product'}>
+                          <Power size={16} />
+                        </button>
+                        <button onClick={() => handleDelete(product.id, product.name)} className="flex items-center justify-center p-2.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-colors outline-none" title="Delete Permanently">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </>

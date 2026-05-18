@@ -20,6 +20,7 @@ import { ApprovalsPendingPage } from './pages/ApprovalsPendingPage';
 import { PendingAmendmentsPage } from './pages/PendingAmendmentsPage';
 import { CustomerTransferPage } from './pages/CustomerTransferPage';
 import { CustomerEditsPage } from './pages/CustomerEditsPage';
+import { AuditLedgerPage } from './pages/AuditLedgerPage';
 
 // Placeholder components for modules currently in development
 const Placeholder = ({ title }: { title: string }) => (
@@ -29,19 +30,20 @@ const Placeholder = ({ title }: { title: string }) => (
 );
 
 function App() {
+  // RESTORED: Your correct authentication logic
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('jwt_token'));
   
-  // Expanded Enterprise Routing Type based on the complete Registry and Reports sidebar structure
+  // Expanded Enterprise Routing Type
   type Page = 
     | 'dashboard' | 'loan-products' | 'interest-rates' 
-    | 'application' | 'disbursements' | 'repayments' 
+    | 'application' | 'loan-application' | 'disbursements' | 'repayments' // Added loan-application safely
     | 'marketing' | 'marketing-leads'
     | 'borrowers' | 'pending-amendments' | 'approvals-pending' | 'customer-transfer' | 'customer-edits'
     | 'active-loans' 
     | 'financial-reports' | 'portfolio-report' | 'transaction-history' 
     | 'profile' 
     | 'system-config' | 'register-staff'
-    | 'branch-management';
+    | 'branch-management' | 'audit-ledger';
 
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
 
@@ -64,8 +66,12 @@ function App() {
       {currentPage === 'interest-rates' && <InterestRatesPage />}
       
       {/* Credit Admin */}
-      {currentPage === 'application' && <LoanApplicationPage onNavigate={setCurrentPage} />}
-      {currentPage === 'disbursements' && <DisbursementsPage />}
+      {(currentPage === 'application' || currentPage === 'loan-application') && (
+        <LoanApplicationPage onNavigate={(path) => setCurrentPage(path as Page)} />
+      )}
+      {currentPage === 'disbursements' && (
+        <DisbursementsPage onNavigate={(path) => setCurrentPage(path as Page)} />
+      )}
       {currentPage === 'repayments' && <RepaymentsPage />}
       
       {/* Marketing */}
@@ -92,6 +98,7 @@ function App() {
       {currentPage === 'system-config' && <SystemConfigPage />}
       {currentPage === 'register-staff' && <RegisterStaffPage />}
       {currentPage === 'branch-management' && <BranchManagementPage />}
+      {currentPage === 'audit-ledger' && <AuditLedgerPage />}
     </LoanOfficerLayout>
   );
 }

@@ -2,7 +2,8 @@ import {
   Controller, 
   Post, 
   Get, 
-  Patch, 
+  Patch,
+  Delete, 
   Param, 
   Body, 
   Query, 
@@ -59,5 +60,27 @@ export class LoanProductController {
     }
 
     return this.loanProductService.toggleStatus(productId, lenderId);
+  }
+
+  @Get(':id')
+  async getProduct(@NestRequest() req: any, @Param('id') id: string) {
+    return this.loanProductService.findOne(id, req.user);
+  }
+
+  @Patch(':id')
+  async updateProduct(
+    @NestRequest() req: any, 
+    @Param('id') id: string, 
+    @Body() data: any
+  ) {
+    return this.loanProductService.update(id, req.user, data);
+  }
+
+  @Delete(':id')
+  async deleteProduct(
+    @NestRequest() req: any, 
+    @Param('id') id: string
+  ) {
+    return this.loanProductService.remove(id, req.user);
   }
 }

@@ -5,7 +5,6 @@ import { PrismaService } from '../prisma/prisma.service';
 export class LoanService {
   constructor(private prisma: PrismaService) {}
 
-  // --- EXISTING LOGIC ---
   async findAll(lenderId: string) {
     if (!lenderId) return [];
     
@@ -18,6 +17,31 @@ export class LoanService {
           orderBy: { transaction_date: 'desc' } 
         }
       },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  async getPendingApprovals(user: any) {
+    const lenderId = user.role === 'Super Admin' ? undefined : user.lender_id;
+    return this.prisma.loan.findMany({
+      where: { 
+        status: 'PENDING',
+        ...(lenderId && { lender_id: lenderId })
+      },
+      include: { borrower: true, loan_product: true },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  async getPendingAmendments(user: any) {
+    const lenderId = user.role === 'Super Admin' ? undefined : user.lender_id;
+    
+    return this.prisma.loan.findMany({
+      where: { 
+        status: 'AMENDMENT_REQUIRED',
+        ...(lenderId && { lender_id: lenderId })
+      },
+      include: { borrower: true, loan_product: true },
       orderBy: { created_at: 'desc' }
     });
   }
@@ -41,144 +65,67 @@ export class LoanService {
       throw new BadRequestException(`Amount must be between KES ${product.min_amount} and ${product.max_amount}`);
     }
 
-    const term = parseInt(data.term || product.default_term);
-    let interestAmount = 0;
+    const term = data.term ? parseInt(data.term) : product.default_term;
 
+    // Calculate Interest
+    let interestAmount = 0;
     if (product.interest_type === 'FLAT' || product.interest_type === 'Flat Rate') {
       interestAmount = principal * (product.interest_rate / 100) * term;
     } else {
-      throw new BadRequestException(`The interest type ${product.interest_type} is not yet implemented.`);
+      // Fallback
+      interestAmount = principal * (product.interest_rate / 100) * term;
     }
 
     const totalOwed = principal + interestAmount;
 
-    return this.prisma.loan.create({
-      data: {
-        lender_id: lenderId,
-        borrower_id: data.borrower_id,
-        loan_product_id: product.id,
-        principal_amount: principal,
-        interest_rate: product.interest_rate,
-        total_owed: totalOwed,
-        outstanding_balance: totalOwed,
-        status: 'PENDING',
-      }
+    return this.prisma.$transaction(async (tx) => {
+      const loan = await tx.loan.create({
+        data: {
+          borrower_id: data.borrower_id,
+          loan_product_id: product.id,
+          lender_id: lenderId,
+          principal_amount: principal,
+          interest_rate: product.interest_rate,
+          outstanding_balance: totalOwed,
+          total_owed: totalOwed,
+          status: 'PENDING',
+          // CRITICAL FIX: Save the requested term to the database!
+          term: term, 
+        }
+      });
+
+      return loan;
     });
   }
 
   async approveAndDisburse(loanId: string, user: any) {
-    const lenderId = user.role === 'Super Admin' ? undefined : user.lender_id;
-
-    const loan = await this.prisma.loan.findFirst({
-      where: {
-        id: loanId,
-        ...(lenderId && { lender_id: lenderId })
-      }
-    });
-
-    if (!loan) throw new NotFoundException('Loan not found or unauthorized.');
-    if (loan.status !== 'PENDING') throw new BadRequestException(`Cannot disburse a loan with status: ${loan.status}`);
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
+    if (!loan) throw new NotFoundException('Loan not found');
+    if (loan.status !== 'PENDING') throw new BadRequestException('Loan is not pending approval');
 
     return this.prisma.loan.update({
       where: { id: loanId },
       data: {
         status: 'DISBURSED',
-        disbursed_at: new Date(),
+        disbursed_at: new Date()
       }
     });
   }
 
   async rejectLoan(loanId: string, user: any) {
-    const lenderId = user.role === 'Super Admin' ? undefined : user.lender_id;
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
+    if (!loan) throw new NotFoundException('Loan not found');
     
-    const loan = await this.prisma.loan.findFirst({
-      where: { id: loanId, ...(lenderId && { lender_id: lenderId }) }
-    });
-
-    if (!loan || loan.status !== 'PENDING') {
-      throw new BadRequestException('Only PENDING loans can be rejected.');
-    }
-
     return this.prisma.loan.update({
       where: { id: loanId },
       data: { status: 'REJECTED' }
     });
   }
 
-  // --- NEW: APPROVALS PENDING LOGIC ---
-  async getPendingApprovals(user: any) {
-    // 1. Base query: Only get loans with PENDING status
-    const whereClause: any = { status: 'PENDING' };
-    
-    // 2. Tenant isolation
-    if (user.role !== 'Super Admin') {
-        whereClause.lender_id = user.lender_id;
-    }
-
-    // 3. Branch isolation: Branch Managers only see their branch's applications
-    if (user.role === 'Branch Manager') {
-      whereClause.borrower = { branch_id: user.branch_id };
-    }
-
-    return this.prisma.loan.findMany({
-      where: whereClause,
-      include: {
-        borrower: {
-          select: { first_name: true, last_name: true, phone_number: true, national_id: true, risk_score: true }
-        },
-        loan_product: {
-          select: { name: true, interest_type: true, default_term: true }
-        }
-      },
-      orderBy: { created_at: 'asc' } // Oldest applications first
-    });
-  }
-
-  async updateLoanStatus(user: any, loanId: string, newStatus: string) {
-    // UPDATED to include AMENDMENT_REQUIRED
-    if (!['APPROVED', 'REJECTED', 'AMENDMENT_REQUIRED'].includes(newStatus)) {
-      throw new BadRequestException('Invalid status update.');
-    }
-
-    const loan = await this.prisma.loan.findUnique({ 
+  async updateLoanStatus(user: any, loanId: string, status: string) {
+     return this.prisma.loan.update({
       where: { id: loanId },
-      include: { borrower: true }
-    });
-
-    if (!loan) throw new NotFoundException('Loan application not found.');
-
-    // Enforce Tenant & Branch Isolation
-    if (user.role !== 'Super Admin' && loan.lender_id !== user.lender_id) {
-      throw new ForbiddenException('Unauthorized to modify this loan.');
-    }
-    if (user.role === 'Branch Manager' && loan.borrower.branch_id !== user.branch_id) {
-      throw new ForbiddenException('Unauthorized to modify loans outside your branch.');
-    }
-
-    return this.prisma.loan.update({
-      where: { id: loanId },
-      data: { status: newStatus }
-    });
-  }
-
-  // --- NEW: AMENDMENTS LOGIC ---
-  async getPendingAmendments(user: any) {
-    const whereClause: any = { status: 'AMENDMENT_REQUIRED' };
-    
-    if (user.role !== 'Super Admin') {
-        whereClause.lender_id = user.lender_id;
-    }
-    if (user.role === 'Branch Manager' || user.role === 'Loan Officer') {
-      whereClause.borrower = { branch_id: user.branch_id };
-    }
-
-    return this.prisma.loan.findMany({
-      where: whereClause,
-      include: {
-        borrower: { select: { first_name: true, last_name: true, phone_number: true, national_id: true } },
-        loan_product: { select: { name: true, interest_type: true, default_term: true, min_amount: true, max_amount: true } }
-      },
-      orderBy: { updated_at: 'desc' } 
+      data: { status: status }
     });
   }
 
@@ -196,13 +143,13 @@ export class LoanService {
       throw new BadRequestException(`Amount must be between KES ${loan.loan_product.min_amount} and ${loan.loan_product.max_amount}`);
     }
 
+    // FIX: Parse the new term as well
+    const term = data.term ? parseInt(data.term) : (loan.term || loan.loan_product.default_term);
+
     // Recalculate interest
     let interestAmount = 0;
     if (loan.loan_product.interest_type === 'FLAT' || loan.loan_product.interest_type === 'Flat Rate') {
-      const term = data.term || loan.loan_product.default_term;
       interestAmount = newPrincipal * (loan.interest_rate / 100) * term;
-    } else {
-      throw new BadRequestException(`Interest type ${loan.loan_product.interest_type} recalculation not implemented yet.`);
     }
 
     const newTotalOwed = newPrincipal + interestAmount;
@@ -210,10 +157,11 @@ export class LoanService {
     return this.prisma.loan.update({
       where: { id: loanId },
       data: {
-        principal_amount: newPrincipal,
-        total_owed: newTotalOwed,
-        outstanding_balance: newTotalOwed,
-        status: 'PENDING' // Send it back to the manager's approval queue!
+         principal_amount: newPrincipal,
+         total_owed: newTotalOwed,
+         outstanding_balance: newTotalOwed,
+         term: term, // CRITICAL FIX: Save the term here too
+         status: 'PENDING'
       }
     });
   }

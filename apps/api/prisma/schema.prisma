@@ -32,6 +32,8 @@ model User {
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
 
+  audit_logs AuditLog[]
+
   role   Role    @relation(fields: [role_id], references: [id])
   lender Lender? @relation(fields: [lender_id], references: [id])
   branch Branch? @relation(fields: [branch_id], references: [id])
@@ -55,6 +57,8 @@ model Lender {
   borrowers     Borrower[]
   loan_products LoanProduct[]
   loans         Loan[]
+
+  audit_logs AuditLog[]
 }
 
 model Branch {
@@ -87,10 +91,12 @@ model Borrower {
   kyc_status        String   @default("PENDING") // PENDING, VERIFIED, REJECTED
   created_at        DateTime @default(now())
 
-  lender    Lender             @relation(fields: [lender_id], references: [id])
-  branch    Branch             @relation(fields: [branch_id], references: [id])
-  documents BorrowerDocument[]
-  loans     Loan[]
+  lender      Lender             @relation(fields: [lender_id], references: [id])
+  branch      Branch             @relation(fields: [branch_id], references: [id])
+  documents   BorrowerDocument[]
+  loans       Loan[]
+  next_of_kin NextOfKin?
+  guarantors  Guarantor[]
 }
 
 model BorrowerDocument {
@@ -145,6 +151,7 @@ model Loan {
   borrower     Borrower      @relation(fields: [borrower_id], references: [id])
   loan_product LoanProduct   @relation(fields: [loan_product_id], references: [id])
   transactions Transaction[]
+  term         Int           @default(1)
 }
 
 model Transaction {
@@ -172,4 +179,46 @@ model InterestRate {
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  user_id     String? // The user who performed the action
+  lender_id   String? // The tenant organization the action belongs to
+  action      String // e.g., 'CREATE_LOAN', 'DELETE_BRANCH', 'IMPERSONATE'
+  entity_type String // e.g., 'Loan', 'Branch', 'Borrower', 'User'
+  entity_id   String? // The ID of the specific record altered
+  details     Json? // A JSON snapshot of what changed
+  ip_address  String? // Security tracking
+  created_at  DateTime @default(now())
+
+  // Relationships
+  user   User?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  lender Lender? @relation(fields: [lender_id], references: [id], onDelete: Cascade)
+}
+
+model NextOfKin {
+  id           String   @id @default(uuid())
+  borrower_id  String   @unique // One Next of Kin per borrower
+  full_name    String
+  relationship String
+  phone_number String
+  id_number    String?
+  document_url String? // Cloudinary URL for the photo ID
+  created_at   DateTime @default(now())
+
+  borrower Borrower @relation(fields: [borrower_id], references: [id], onDelete: Cascade)
+}
+
+model Guarantor {
+  id           String   @id @default(uuid())
+  borrower_id  String
+  full_name    String
+  relationship String
+  phone_number String
+  id_number    String?
+  document_url String? // Cloudinary URL for the photo ID
+  created_at   DateTime @default(now())
+
+  borrower Borrower @relation(fields: [borrower_id], references: [id], onDelete: Cascade)
 }

@@ -32,7 +32,7 @@ export class BorrowerService {
                 phone_number: data.phone_number,
                 gender: data.gender,
                 address: data.address,
-                lender_id: user.lender_id || data.lender_id, 
+                lender_id: user.lender_id || data.lender_id,
                 branch_id: data.branch_id,
                 email: data.email,
             },
@@ -42,10 +42,12 @@ export class BorrowerService {
     async findByLender(lenderId: string) {
         return this.prisma.borrower.findMany({
             where: { lender_id: lenderId },
-            include: { 
+            include: {
                 documents: { orderBy: { uploaded_at: 'desc' } },
                 branch: true,
-                loans: { orderBy: { created_at: 'desc' } }
+                loans: { orderBy: { created_at: 'desc' } },
+                next_of_kin: true,
+                guarantors: true,
             },
             orderBy: { created_at: 'desc' }
         });
@@ -81,7 +83,7 @@ export class BorrowerService {
                 gender: data.gender,
                 address: data.address,
                 branch_id: data.branch_id,
-                kyc_status: data.kyc_status, 
+                kyc_status: data.kyc_status,
             },
         });
     }
@@ -91,7 +93,7 @@ export class BorrowerService {
 
         const borrower = await this.prisma.borrower.findFirst({
             where: { id, ...(lenderId && { lender_id: lenderId }) },
-            include: { loans: true } 
+            include: { loans: true }
         });
 
         if (!borrower) throw new NotFoundException('Borrower not found or unauthorized.');
@@ -140,7 +142,7 @@ export class BorrowerService {
 
     async addDocument(borrowerId: string, documentType: string, fileUrl: string, user: any) {
         const lenderId = user.role === 'Super Admin' ? undefined : user.lender_id;
-        
+
         const borrower = await this.prisma.borrower.findFirst({
             where: { id: borrowerId, ...(lenderId && { lender_id: lenderId }) }
         });
@@ -177,63 +179,142 @@ export class BorrowerService {
     // --- NEW: CUSTOMER TRANSFER LOGIC ---
     async getBorrowersForTransfer(user: any) {
         const whereClause: any = {};
-        
+
         // 1. Tenant Isolation
         if (user.role !== 'Super Admin') {
-          whereClause.lender_id = user.lender_id;
+            whereClause.lender_id = user.lender_id;
         }
-        
+
         // 2. Branch Managers can only transfer customers currently assigned to their branch
         if (user.role === 'Branch Manager') {
-          whereClause.branch_id = user.branch_id;
+            whereClause.branch_id = user.branch_id;
         }
-    
+
         return this.prisma.borrower.findMany({
-          where: whereClause,
-          include: {
-            branch: { select: { id: true, name: true, location: true } }
-          },
-          orderBy: { created_at: 'desc' }
+            where: whereClause,
+            include: {
+                branch: { select: { id: true, name: true, location: true } }
+            },
+            orderBy: { created_at: 'desc' }
         });
     }
 
     async transferCustomer(user: any, borrowerId: string, targetBranchId: string) {
         if (!targetBranchId) {
-          throw new BadRequestException('A target branch must be selected.');
+            throw new BadRequestException('A target branch must be selected.');
         }
-    
-        const borrower = await this.prisma.borrower.findUnique({ 
-          where: { id: borrowerId } 
+
+        const borrower = await this.prisma.borrower.findUnique({
+            where: { id: borrowerId }
         });
-    
+
         if (!borrower) throw new NotFoundException('Customer profile not found.');
-    
+
         // 1. Enforce Tenant Isolation
         if (user.role !== 'Super Admin' && borrower.lender_id !== user.lender_id) {
-          throw new ForbiddenException('Unauthorized to modify this customer.');
+            throw new ForbiddenException('Unauthorized to modify this customer.');
         }
-    
+
         // 2. Enforce Branch Manager Restrictions
         if (user.role === 'Branch Manager' && borrower.branch_id !== user.branch_id) {
-          throw new ForbiddenException('You can only initiate transfers for customers currently in your branch.');
+            throw new ForbiddenException('You can only initiate transfers for customers currently in your branch.');
         }
-    
+
         // 3. Verify Target Branch exists and belongs to the same Lender
         const targetBranch = await this.prisma.branch.findUnique({ where: { id: targetBranchId } });
         if (!targetBranch) throw new NotFoundException('Destination branch not found.');
         if (targetBranch.lender_id !== borrower.lender_id) {
-          throw new BadRequestException('Cannot transfer customer to a branch belonging to a different institution.');
+            throw new BadRequestException('Cannot transfer customer to a branch belonging to a different institution.');
         }
-    
+
         // 4. Ensure they aren't transferring to the same branch
         if (borrower.branch_id === targetBranchId) {
-          throw new BadRequestException('Customer is already assigned to this branch.');
+            throw new BadRequestException('Customer is already assigned to this branch.');
         }
-    
+
         // 5. Execute the transfer
         return this.prisma.borrower.update({
-          where: { id: borrowerId },
-          data: { branch_id: targetBranchId }
+            where: { id: borrowerId },
+            data: { branch_id: targetBranchId }
+        });
+    }
+
+    async addNextOfKin(borrowerId: string, data: any, documentUrl?: string) {
+        return this.prisma.nextOfKin.upsert({
+            where: { borrower_id: borrowerId },
+            update: {
+                full_name: data.full_name,
+                relationship: data.relationship,
+                phone_number: data.phone_number,
+                id_number: data.id_number,
+                ...(documentUrl && { document_url: documentUrl })
+            },
+            create: {
+                borrower_id: borrowerId,
+                full_name: data.full_name,
+                relationship: data.relationship,
+                phone_number: data.phone_number,
+                id_number: data.id_number,
+                document_url: documentUrl
+            }
+        });
+    }
+
+    async addGuarantor(borrowerId: string, data: any, documentUrl?: string) {
+        return this.prisma.guarantor.create({
+            data: {
+                borrower_id: borrowerId,
+                full_name: data.full_name,
+                relationship: data.relationship,
+                phone_number: data.phone_number,
+                id_number: data.id_number,
+                document_url: documentUrl
+            }
+        });
+    }
+
+    // --- NEXT OF KIN & GUARANTOR MANAGEMENT ---
+
+    async deleteNextOfKin(borrowerId: string, user: any) {
+        const borrower = await this.prisma.borrower.findUnique({ where: { id: borrowerId } });
+        if (!borrower) throw new NotFoundException('Customer profile not found.');
+        if (user.role !== 'Super Admin' && borrower.lender_id !== user.lender_id) {
+            throw new ForbiddenException('Unauthorized to modify this customer.');
+        }
+
+        return this.prisma.nextOfKin.delete({
+            where: { borrower_id: borrowerId }
+        });
+    }
+
+    async updateGuarantor(borrowerId: string, guarantorId: string, data: any, documentUrl: string | null, user: any) {
+        const borrower = await this.prisma.borrower.findUnique({ where: { id: borrowerId } });
+        if (!borrower) throw new NotFoundException('Customer profile not found.');
+        if (user.role !== 'Super Admin' && borrower.lender_id !== user.lender_id) {
+            throw new ForbiddenException('Unauthorized to modify this customer.');
+        }
+
+        return this.prisma.guarantor.update({
+            where: { id: guarantorId },
+            data: {
+                full_name: data.full_name,
+                relationship: data.relationship,
+                phone_number: data.phone_number,
+                id_number: data.id_number,
+                ...(documentUrl && { document_url: documentUrl })
+            }
+        });
+    }
+
+    async deleteGuarantor(borrowerId: string, guarantorId: string, user: any) {
+        const borrower = await this.prisma.borrower.findUnique({ where: { id: borrowerId } });
+        if (!borrower) throw new NotFoundException('Customer profile not found.');
+        if (user.role !== 'Super Admin' && borrower.lender_id !== user.lender_id) {
+            throw new ForbiddenException('Unauthorized to modify this customer.');
+        }
+
+        return this.prisma.guarantor.delete({
+            where: { id: guarantorId }
         });
     }
 }

@@ -4,7 +4,7 @@ import useAuthStore from '../store/authStore';
 import {
   Building2, Plus, Mail, Phone, FileText,
   MapPin, Loader2, CheckCircle2, ShieldAlert,
-  Server, Search, ShieldCheck, Edit, Trash2, Ban, Eye, X, Activity, Users, CreditCard
+  Server, Search, ShieldCheck, Edit, Trash2, Ban, Eye, X, Activity, Users, CreditCard, LogIn
 } from 'lucide-react';
 
 export const SystemConfigPage = () => {
@@ -95,6 +95,23 @@ export const SystemConfigPage = () => {
       loadLenders();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to delete institution.');
+    }
+  };
+
+  const handleImpersonate = async (lender: any) => {
+    if (!window.confirm(`Are you sure you want to log in as ${lender.name}? \n\nYou will temporarily leave your Super Admin dashboard. To return, you will need to sign out and log back in.`)) return;
+
+    try {
+      const response = await api.post(`/auth/impersonate/${lender.id}`);
+
+      // Overwrite the local token with the new impersonated tenant token
+      localStorage.setItem('jwt_token', response.data.access_token);
+
+      // Force a hard reload of the application to clear all React state 
+      // and re-initialize the app context as the new user
+      window.location.href = '/';
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to impersonate tenant. Make sure they have an active Admin account.');
     }
   };
 
@@ -227,6 +244,7 @@ export const SystemConfigPage = () => {
                     </td>
                     <td className="p-5 text-right pr-6">
                       <div className="flex items-center justify-end space-x-2">
+                        <button onClick={() => handleImpersonate(lender)} title="Login as Tenant" className="p-1.5 text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white rounded-lg transition-colors outline-none"><LogIn size={16} /></button>
                         <button onClick={() => openDetails(lender)} title="System Overview" className="p-1.5 text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors outline-none"><Eye size={16} /></button>
                         <button onClick={() => openEdit(lender)} title="Edit Institution" className="p-1.5 text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-600 hover:text-white rounded-lg transition-colors outline-none"><Edit size={16} /></button>
                         <button onClick={() => handleToggleStatus(lender.id, lender.status)} title={lender.status === 'ACTIVE' ? "Suspend Tenant" : "Reactivate Tenant"} className={`p-1.5 rounded-lg border transition-colors outline-none ${lender.status === 'ACTIVE' ? 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-500 hover:text-white' : 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-500 hover:text-white'}`}>

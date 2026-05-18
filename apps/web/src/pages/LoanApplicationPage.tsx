@@ -43,8 +43,6 @@ export const LoanApplicationPage = ({
 
         // Only show verified customers for new loans
         setBorrowers(bRes.data.filter((b: any) => b.kyc_status === 'VERIFIED' || !b.kyc_status));
-        // Temporarily show all borrowers during development
-        //setBorrowers(bRes.data);
         setProducts(pRes.data.filter((p: any) => p.is_active));
       } catch (err: any) {
         console.error('Failed to load application data:', err);
@@ -124,6 +122,20 @@ export const LoanApplicationPage = ({
     } catch (err: any) {
       setErrorMsg(err.response?.data?.message || 'Application failed due to system constraints.');
       setIsSubmitting(false);
+    }
+  };
+
+  // Dynamic Label Helper for Input Fields
+  const getTermLabel = (cycle: string) => {
+    switch (cycle) {
+      case 'Daily': return 'Days';
+      case 'Weekly': return 'Wks';
+      case 'Quarterly': return 'Qtrs';
+      case 'Semi-Annually': return 'Half-Yrs';
+      case 'Annually': return 'Yrs';
+      case 'None': return 'Terms';
+      case 'Monthly':
+      default: return 'Mos';
     }
   };
 
@@ -264,11 +276,12 @@ export const LoanApplicationPage = ({
                           value={term}
                           onChange={(e) => setTerm(e.target.value === '' ? '' : Number(e.target.value))}
                           disabled={!selectedProduct}
-                          className="w-full pl-11 pr-16 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-base font-bold text-slate-900"
+                          className="w-full pl-11 pr-24 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-base font-bold text-slate-900"
                           placeholder="1"
                         />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 uppercase tracking-widest">
-                          {selectedProduct?.repayment_cycle === 'Weekly' ? 'Wks' : 'Mos'}
+                          {/* DYNAMIC TERM LABEL INJECTED HERE */}
+                          {getTermLabel(selectedProduct?.repayment_cycle)}
                         </span>
                       </div>
                     </div>

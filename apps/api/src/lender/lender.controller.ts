@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, UseGuards, Request as NestRequest } from '@nestjs/common';
 import { LenderService } from './lender.service';
 import { CreateLenderDto } from './dto/create-lender.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -24,14 +24,16 @@ export class LenderController {
 
   @Patch(':id')
   @Roles('Super Admin')
-  async updateLender(@Param('id') id: string, @Body() data: any) {
-    return this.lenderService.updateLender(id, data);
+  async updateLender(@NestRequest() req: any, @Param('id') id: string, @Body() data: any) {
+    // Pass req.user to the service for Audit Logging
+    return this.lenderService.updateLender(req.user, id, data);
   }
 
   @Patch(':id/toggle-status')
   @Roles('Super Admin')
-  async toggleLenderStatus(@Param('id') id: string) {
-    return this.lenderService.toggleStatus(id);
+  async toggleLenderStatus(@NestRequest() req: any, @Param('id') id: string) {
+    // Pass req.user to the service for Audit Logging
+    return this.lenderService.toggleStatus(req.user, id);
   }
 
   @Delete(':id')

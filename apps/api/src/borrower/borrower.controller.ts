@@ -117,4 +117,75 @@ export class BorrowerController {
     ) {
         return this.borrowerService.removeDocument(borrowerId, docId, req.user);
     }
+
+    @Post(':id/next-of-kin')
+    @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
+    @UseInterceptors(FileInterceptor('file'))
+    async addNextOfKin(
+        @Param('id') id: string, 
+        @Body() data: any, 
+        @UploadedFile() file: Express.Multer.File
+    ) {
+        let docUrl = null;
+        if (file) {
+            // Upload photo to Cloudinary
+            const uploadResult = await this.cloudinaryService.uploadFile(file, 'next-of-kin');
+            docUrl = uploadResult.secure_url;
+        }
+        return this.borrowerService.addNextOfKin(id, data, docUrl);
+    }
+
+    @Post(':id/guarantors')
+    @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
+    @UseInterceptors(FileInterceptor('file'))
+    async addGuarantor(
+        @Param('id') id: string, 
+        @Body() data: any, 
+        @UploadedFile() file: Express.Multer.File
+    ) {
+        let docUrl = null;
+        if (file) {
+            // Upload photo to Cloudinary
+            const uploadResult = await this.cloudinaryService.uploadFile(file, 'guarantors');
+            docUrl = uploadResult.secure_url;
+        }
+        return this.borrowerService.addGuarantor(id, data, docUrl);
+    }
+
+    @Delete(':id/next-of-kin')
+    @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
+    async deleteNextOfKin(
+        @Param('id') id: string, 
+        @NestRequest() req: any
+    ) {
+        return this.borrowerService.deleteNextOfKin(id, req.user);
+    }
+
+    @Patch(':id/guarantors/:guarantorId')
+    @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
+    @UseInterceptors(FileInterceptor('file'))
+    async updateGuarantor(
+        @Param('id') borrowerId: string,
+        @Param('guarantorId') guarantorId: string,
+        @Body() data: any,
+        @UploadedFile() file: Express.Multer.File,
+        @NestRequest() req: any
+    ) {
+        let docUrl = null;
+        if (file) {
+            const uploadResult = await this.cloudinaryService.uploadFile(file, 'guarantors');
+            docUrl = uploadResult.secure_url;
+        }
+        return this.borrowerService.updateGuarantor(borrowerId, guarantorId, data, docUrl, req.user);
+    }
+
+    @Delete(':id/guarantors/:guarantorId')
+    @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
+    async deleteGuarantor(
+        @Param('id') borrowerId: string, 
+        @Param('guarantorId') guarantorId: string, 
+        @NestRequest() req: any
+    ) {
+        return this.borrowerService.deleteGuarantor(borrowerId, guarantorId, req.user);
+    }
 }

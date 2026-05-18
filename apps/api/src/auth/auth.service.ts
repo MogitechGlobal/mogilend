@@ -9,12 +9,14 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
+import { AuditService } from '../audit/audit.service'; // <-- 1. Import it here
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private auditService: AuditService // <-- 2. Inject it here
   ) {}
 
   // --- EXISTING LOGIN LOGIC ---
@@ -74,16 +76,14 @@ export class AuthService {
     };
   }
 
-  // --- NEW REGISTRATION LOGIC ---
+  // --- EXISTING REGISTRATION LOGIC ---
   async registerStaff(creator: any, data: any) {
-    // 1. Strict Tenant Safety: Prevent cross-tenant user creation
     const targetLenderId = creator.role === 'Super Admin' ? data.lender_id : creator.lender_id;
     
     if (!targetLenderId) {
       throw new ForbiddenException('A lender_id is required to register staff.');
     }
 
-    // 2. Check if email already exists globally
     const existingUser = await this.prisma.user.findUnique({
       where: { email: data.email },
     });
@@ -92,8 +92,6 @@ export class AuthService {
       throw new ConflictException('Email is already registered in the system.');
     }
 
-    // 3. Resolve Role Relation
-    // Since the frontend sends a string (e.g. 'Loan Officer'), we must find the corresponding Role ID
     const roleRecord = await this.prisma.role.findFirst({
       where: { name: data.role }
     });
@@ -102,10 +100,8 @@ export class AuthService {
       throw new NotFoundException(`The role '${data.role}' does not exist in the database.`);
     }
 
-    // 4. Hash the password for security
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    // 5. Create the User Profile
     const newUser = await this.prisma.user.create({
       data: {
         first_name: data.first_name,
@@ -119,13 +115,48 @@ export class AuthService {
       },
       select: {
         id: true,
-        first_name: true, // Now valid after schema update
-        last_name: true,  // Now valid after schema update
+        first_name: true,
+        last_name: true, 
         email: true,
         created_at: true,
       }
     });
 
     return newUser;
+  }
+
+  // --- IMPERSONATION LOGIC WITH ADVANCED AUDIT LOGGING ---
+  async impersonateLender(adminUser: any, targetLenderId: string) {
+    if (adminUser.role !== 'Super Admin') {
+      throw new ForbiddenException('Only Super Admins can impersonate accounts.');
+    }
+
+    const lenderAdmin = await this.prisma.user.findFirst({
+      where: {
+        lender_id: targetLenderId,
+        role: { name: 'Lender Admin' },
+        is_active: true
+      },
+      include: { role: true },
+      orderBy: { created_at: 'asc' } 
+    });
+
+    if (!lenderAdmin) {
+      throw new NotFoundException('No active Lender Admin account found for this institution.');
+    }
+
+    // 3. Fire the Audit Log using the injected service and correct schema
+    await this.auditService.createLog({
+      user_id: adminUser.id || adminUser.sub,
+      action: 'IMPERSONATE_TENANT',
+      entity_type: 'Lender',
+      entity_id: targetLenderId,
+      details: { 
+        target_email: lenderAdmin.email, 
+        message: 'Super Admin initiated a secure impersonation session.'
+      }
+    });
+
+    return this.generateAuthResponse(lenderAdmin);
   }
 }
