@@ -38,11 +38,8 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     }
   };
 
-  // 2. CALL IT WHEN THE COMPONENT LOADS
   useEffect(() => {
-    if (user) {
-      loadBorrowers();
-    }
+    if (user) loadBorrowers();
   }, [user]);
 
   // Modal States
@@ -52,23 +49,29 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
   const [editModal, setEditModal] = useState<any | null>(null);
   const [deleteModal, setDeleteModal] = useState<any | null>(null);
 
-  // New States for Next of Kin / Guarantor Forms
+  // States for Next of Kin Forms
   const [kinForm, setKinForm] = useState({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+  const [isEditingKin, setIsEditingKin] = useState(false);
+  const [selectedKinIdDoc, setSelectedKinIdDoc] = useState<File | null>(null);
+  const [selectedKinIdDocBack, setSelectedKinIdDocBack] = useState<File | null>(null);
+  const [selectedKinPassport, setSelectedKinPassport] = useState<File | null>(null);
+  
+  // States for Guarantor Forms
   const [guarForm, setGuarForm] = useState({ full_name: '', relationship: '', phone_number: '', id_number: '' });
   const [editingGuarantorId, setEditingGuarantorId] = useState<string | null>(null);
-  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+  const [selectedGuarIdDoc, setSelectedGuarIdDoc] = useState<File | null>(null);
+  const [selectedGuarIdDocBack, setSelectedGuarIdDocBack] = useState<File | null>(null);
+  const [selectedGuarPassport, setSelectedGuarPassport] = useState<File | null>(null);
+  
   const [isUploading, setIsUploading] = useState(false);
 
-  // Auto-populate Next of Kin form when the tab opens
+  // Reset Kin Edit state safely on tab or profile change
   useEffect(() => {
-    if (detailsTab === 'kin' && viewModal) {
-      setKinForm({
-        full_name: viewModal.next_of_kin?.full_name || '',
-        relationship: viewModal.next_of_kin?.relationship || '',
-        phone_number: viewModal.next_of_kin?.phone_number || '',
-        id_number: viewModal.next_of_kin?.id_number || ''
-      });
-    }
+    setIsEditingKin(false);
+    setKinForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+    setSelectedKinIdDoc(null);
+    setSelectedKinIdDocBack(null);
+    setSelectedKinPassport(null);
   }, [detailsTab, viewModal?.id]);
 
   // Document Upload & Delete States
@@ -244,49 +247,47 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     return <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-amber-200">{s}</span>;
   };
 
+  const refreshViewModal = async () => {
+    loadBorrowers(); 
+    const response = await api.get(`/borrowers?lender_id=${user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e'}`);
+    const updatedBorrower = response.data.find((b: any) => b.id === viewModal?.id);
+    if (updatedBorrower) setViewModal(updatedBorrower);
+  };
+
+  // --- NEXT OF KIN HANDLERS ---
+  const handleEditKinClick = () => {
+    setKinForm({
+      full_name: viewModal.next_of_kin.full_name,
+      relationship: viewModal.next_of_kin.relationship,
+      phone_number: viewModal.next_of_kin.phone_number,
+      id_number: viewModal.next_of_kin.id_number || ''
+    });
+    setSelectedKinIdDoc(null);
+    setSelectedKinIdDocBack(null);
+    setSelectedKinPassport(null);
+    setIsEditingKin(true);
+  };
+
   const handleSaveKin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsUploading(true);
     try {
       const formPayload = new FormData();
-      Object.entries(kinForm).forEach(([key, value]) => formPayload.append(key, value));
-      if (selectedPhoto) formPayload.append('file', selectedPhoto);
+      Object.entries(kinForm).forEach(([key, value]) => formPayload.append(key, value as string));
+      
+      if (selectedKinIdDoc) formPayload.append('id_document', selectedKinIdDoc);
+      if (selectedKinIdDocBack) formPayload.append('id_document_back', selectedKinIdDocBack);
+      if (selectedKinPassport) formPayload.append('passport_photo', selectedKinPassport);
 
-      await api.post(`/borrowers/${viewModal.id}/next-of-kin`, formPayload, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      alert('Next of Kin updated successfully!');
-      setSelectedPhoto(null);
-      loadBorrowers(); // Refresh data
-    } catch (error) {
-      alert('Failed to save Next of Kin.');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleSaveGuarantor = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsUploading(true);
-    try {
-      const formPayload = new FormData();
-      Object.entries(guarForm).forEach(([key, value]) => formPayload.append(key, value));
-      if (selectedPhoto) formPayload.append('file', selectedPhoto);
-
-      await api.post(`/borrowers/${viewModal.id}/guarantors`, formPayload, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      alert('Guarantor added successfully!');
-      setSelectedPhoto(null);
-      setGuarForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
-      loadBorrowers();
-    } catch (error) {
-      alert('Failed to save Guarantor.');
-    } finally {
-      setIsUploading(false);
-    }
+      await api.post(`/borrowers/${viewModal.id}/next-of-kin`, formPayload, { headers: { 'Content-Type': 'multipart/form-data' }});
+      
+      setSelectedKinIdDoc(null);
+      setSelectedKinIdDocBack(null);
+      setSelectedKinPassport(null);
+      setIsEditingKin(false);
+      setKinForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+      await refreshViewModal();
+    } catch (error) { alert('Failed to save Next of Kin.'); } finally { setIsUploading(false); }
   };
 
   const handleDeleteKin = async () => {
@@ -294,6 +295,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     try {
       await api.delete(`/borrowers/${viewModal.id}/next-of-kin`);
       setKinForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+      setIsEditingKin(false);
       await refreshViewModal();
     } catch (error) { alert('Failed to delete Next of Kin.'); }
   };
@@ -302,6 +304,35 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
   const handleEditGuarantorClick = (g: any) => {
     setEditingGuarantorId(g.id);
     setGuarForm({ full_name: g.full_name, relationship: g.relationship, phone_number: g.phone_number, id_number: g.id_number || '' });
+    setSelectedGuarIdDoc(null);
+    setSelectedGuarIdDocBack(null);
+    setSelectedGuarPassport(null);
+  };
+
+  const handleSaveGuarantor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUploading(true);
+    try {
+      const formPayload = new FormData();
+      Object.entries(guarForm).forEach(([key, value]) => formPayload.append(key, value as string));
+      
+      if (selectedGuarIdDoc) formPayload.append('id_document', selectedGuarIdDoc);
+      if (selectedGuarIdDocBack) formPayload.append('id_document_back', selectedGuarIdDocBack);
+      if (selectedGuarPassport) formPayload.append('passport_photo', selectedGuarPassport);
+
+      if (editingGuarantorId) {
+        await api.patch(`/borrowers/${viewModal.id}/guarantors/${editingGuarantorId}`, formPayload, { headers: { 'Content-Type': 'multipart/form-data' }});
+      } else {
+        await api.post(`/borrowers/${viewModal.id}/guarantors`, formPayload, { headers: { 'Content-Type': 'multipart/form-data' }});
+      }
+
+      setSelectedGuarIdDoc(null);
+      setSelectedGuarIdDocBack(null);
+      setSelectedGuarPassport(null);
+      setEditingGuarantorId(null);
+      setGuarForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+      await refreshViewModal();
+    } catch (error) { alert('Failed to save Guarantor.'); } finally { setIsUploading(false); }
   };
 
   const handleDeleteGuarantor = async (gid: string) => {
@@ -314,14 +345,6 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       }
       await refreshViewModal();
     } catch (error) { alert('Failed to delete Guarantor.'); }
-  };
-
-  // Helper to refresh the modal so UI updates instantly without closing it
-  const refreshViewModal = async () => {
-    loadBorrowers(); // Refresh background table
-    const response = await api.get(`/borrowers?lender_id=${user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e'}`);
-    const updatedBorrower = response.data.find((b: any) => b.id === viewModal.id);
-    if (updatedBorrower) setViewModal(updatedBorrower);
   };
 
   return (
@@ -538,15 +561,13 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         )}
       </div>
 
-      {/* --- 1. ACTION VIEW MODAL (Refined Responsive View Window) --- */}
+      {/* --- ACTION VIEW MODAL --- */}
       {viewModal && (
         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-6 bg-slate-900/60 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setViewModal(null)}></div>
 
-          {/* Constrains the modal width on laptop/desktop screens while keeping it w-full on mobile. */}
           <div className="bg-slate-50 w-full sm:max-w-4xl lg:max-w-5xl h-[95vh] sm:h-auto sm:max-h-[95vh] rounded-t-3xl sm:rounded-b-3xl sm:rounded-[2rem] shadow-2xl relative z-10 overflow-hidden animate-fade-in flex flex-col">
 
-            {/* Extended Profile Hero Header (Mobile-Optimized Horizontal Layout) */}
             <div className="bg-[#0B1121] px-5 sm:px-8 pt-6 sm:pt-10 pb-5 sm:pb-6 text-white relative shrink-0">
               <button onClick={() => setViewModal(null)} className="absolute top-4 sm:top-6 right-4 sm:right-6 text-slate-400 hover:text-white transition-colors bg-white/10 hover:bg-white/20 p-2 rounded-full outline-none">
                 <X size={20} />
@@ -591,37 +612,12 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
             {/* In-Modal Navigation Tabs (Slimmer on mobile) */}
             <div className="flex px-4 sm:px-8 bg-white border-b border-slate-200 shrink-0 overflow-x-auto custom-scrollbar shadow-sm z-10">
-              <button
-                onClick={() => setDetailsTab('overview')}
-                className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-              >
-                Profile Overview
-              </button>
-              <button
-                onClick={() => setDetailsTab('loans')}
-                className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'loans' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-              >
-                Loan History <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.loans?.length || 0}</span>
-              </button>
-              <button
-                onClick={() => setDetailsTab('documents')}
-                className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'documents' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-              >
-                KYC Documents <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.documents?.length || 0}</span>
-              </button>
-
-              <button onClick={() => setDetailsTab('kin')} className={`py-4 px-2 mr-6 border-b-2 font-bold text-sm ${detailsTab === 'kin' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>
-                Next of Kin
-              </button>
-              <button onClick={() => setDetailsTab('guarantors')} className={`py-4 px-2 mr-6 border-b-2 font-bold text-sm ${detailsTab === 'guarantors' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>
-                Guarantors
-              </button>
-              <button
-                onClick={() => setDetailsTab('history')}
-                className={`py-3 sm:py-4 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-              >
-                Interactions & Alerts
-              </button>
+              <button onClick={() => setDetailsTab('overview')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Profile Overview</button>
+              <button onClick={() => setDetailsTab('loans')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'loans' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Loan History <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.loans?.length || 0}</span></button>
+              <button onClick={() => setDetailsTab('documents')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'documents' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>KYC Documents <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.documents?.length || 0}</span></button>
+              <button onClick={() => setDetailsTab('kin')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'kin' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Next of Kin</button>
+              <button onClick={() => setDetailsTab('guarantors')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'guarantors' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Guarantors</button>
+              <button onClick={() => setDetailsTab('history')} className={`py-3 sm:py-4 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Interactions & Alerts</button>
             </div>
 
             {/* Modal Body */}
@@ -720,7 +716,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                 </div>
               )}
 
-              {/* TAB 3: KYC DOCUMENTS (IMAGE ONLY) */}
+              {/* TAB 3: KYC DOCUMENTS */}
               {detailsTab === 'documents' && (
                 <div className="bg-white p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm min-h-[300px] flex flex-col">
 
@@ -737,14 +733,8 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                   {viewModal.documents && viewModal.documents.length > 0 ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
                       {viewModal.documents.map((doc: any) => (
-                        <div
-                          key={doc.id}
-                          className="group border border-slate-200 rounded-2xl p-2 bg-slate-50 hover:bg-white hover:border-blue-500 hover:shadow-md transition-all text-center relative overflow-hidden"
-                        >
-                          <div
-                            onClick={() => setPreviewDoc(doc)}
-                            className="w-full h-24 sm:h-32 bg-slate-200 rounded-xl overflow-hidden mb-2 sm:mb-3 relative flex items-center justify-center cursor-pointer"
-                          >
+                        <div key={doc.id} className="group border border-slate-200 rounded-2xl p-2 bg-slate-50 hover:bg-white hover:border-blue-500 hover:shadow-md transition-all text-center relative overflow-hidden">
+                          <div onClick={() => setPreviewDoc(doc)} className="w-full h-24 sm:h-32 bg-slate-200 rounded-xl overflow-hidden mb-2 sm:mb-3 relative flex items-center justify-center cursor-pointer">
                             <img src={doc.file_url} alt="Document" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                             <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                               <Eye className="text-white" size={24} />
@@ -760,11 +750,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                               </p>
                             </div>
                             {canManage && (
-                              <button
-                                onClick={() => setDeleteDocModal(doc)}
-                                className="text-slate-400 hover:text-red-500 p-1 sm:p-1.5 transition-colors outline-none shrink-0"
-                                title="Delete Document"
-                              >
+                              <button onClick={() => setDeleteDocModal(doc)} className="text-slate-400 hover:text-red-500 p-1 sm:p-1.5 transition-colors outline-none shrink-0" title="Delete Document">
                                 <Trash2 size={14} />
                               </button>
                             )}
@@ -785,35 +771,50 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               {/* TAB: NEXT OF KIN */}
               {detailsTab === 'kin' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-black text-lg text-slate-800">Current Next of Kin</h3>
-                      {viewModal.next_of_kin && (
-                        <button onClick={handleDeleteKin} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors outline-none" title="Delete Next of Kin">
-                          <Trash2 size={18} />
-                        </button>
-                      )}
-                    </div>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm overflow-y-auto max-h-[600px] custom-scrollbar">
+                    <h3 className="font-black text-lg mb-4 text-slate-800">Current Next of Kin</h3>
                     {viewModal.next_of_kin ? (
-                      <div className="space-y-4">
-                        <div className="flex justify-between border-b border-slate-100 pb-2">
-                          <span className="text-slate-500 text-sm">Full Name</span>
-                          <span className="font-bold">{viewModal.next_of_kin.full_name}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-100 pb-2">
-                          <span className="text-slate-500 text-sm">Relationship</span>
-                          <span className="font-bold">{viewModal.next_of_kin.relationship}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-100 pb-2">
-                          <span className="text-slate-500 text-sm">Phone</span>
-                          <span className="font-bold">{viewModal.next_of_kin.phone_number}</span>
-                        </div>
-                        {viewModal.next_of_kin.document_url && (
-                          <div className="mt-4">
-                            <span className="text-slate-500 text-sm block mb-2">Photo ID</span>
-                            <img src={viewModal.next_of_kin.document_url} alt="Kin ID" className="w-full h-48 object-cover rounded-xl border border-slate-200" />
+                      <div className={`p-4 border rounded-xl transition-all ${isEditingKin ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="font-black text-slate-900">{viewModal.next_of_kin.full_name} <span className="text-xs font-normal text-slate-500">({viewModal.next_of_kin.relationship})</span></p>
+                            <p className="text-sm text-slate-600">{viewModal.next_of_kin.phone_number} | ID: {viewModal.next_of_kin.id_number || 'N/A'}</p>
                           </div>
-                        )}
+                          <div className="flex space-x-1 opacity-80 hover:opacity-100">
+                            <button onClick={handleEditKinClick} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors outline-none"><Edit size={16} /></button>
+                            <button onClick={handleDeleteKin} className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-colors outline-none"><Trash2 size={16} /></button>
+                          </div>
+                        </div>
+                        
+                        <div className="flex space-x-2 mt-3 overflow-x-auto pb-2 custom-scrollbar">
+                          {viewModal.next_of_kin.document_url && (
+                            <div className="flex-1 min-w-[100px] group relative">
+                              <span className="text-[10px] font-bold text-slate-400 block mb-1">ID (Front)</span>
+                              <div onClick={() => setPreviewDoc({ file_url: viewModal.next_of_kin.document_url, document_type: 'Next of Kin ID (Front)', created_at: viewModal.next_of_kin.created_at, is_readonly: true })} className="w-full h-24 bg-slate-200 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer border border-slate-200">
+                                <img src={viewModal.next_of_kin.document_url} alt="ID Front" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Eye className="text-white" size={24} /></div>
+                              </div>
+                            </div>
+                          )}
+                          {viewModal.next_of_kin.id_back_document_url && (
+                            <div className="flex-1 min-w-[100px] group relative">
+                              <span className="text-[10px] font-bold text-slate-400 block mb-1">ID (Back)</span>
+                              <div onClick={() => setPreviewDoc({ file_url: viewModal.next_of_kin.id_back_document_url, document_type: 'Next of Kin ID (Back)', created_at: viewModal.next_of_kin.created_at, is_readonly: true })} className="w-full h-24 bg-slate-200 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer border border-slate-200">
+                                <img src={viewModal.next_of_kin.id_back_document_url} alt="ID Back" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Eye className="text-white" size={24} /></div>
+                              </div>
+                            </div>
+                          )}
+                          {viewModal.next_of_kin.passport_photo_url && (
+                            <div className="flex-1 min-w-[100px] group relative">
+                              <span className="text-[10px] font-bold text-slate-400 block mb-1">Passport</span>
+                              <div onClick={() => setPreviewDoc({ file_url: viewModal.next_of_kin.passport_photo_url, document_type: 'Next of Kin Passport', created_at: viewModal.next_of_kin.created_at, is_readonly: true })} className="w-full h-24 bg-slate-200 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer border border-slate-200">
+                                <img src={viewModal.next_of_kin.passport_photo_url} alt="Passport" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Eye className="text-white" size={24} /></div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <p className="text-slate-500 text-sm">No Next of Kin recorded.</p>
@@ -821,50 +822,95 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                   </div>
 
                   {/* Add/Update Kin Form */}
-                  <form onSubmit={handleSaveKin} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm h-fit">
-                    <h3 className="font-black text-lg mb-4 text-slate-800">{viewModal.next_of_kin ? 'Update' : 'Add'} Next of Kin</h3>
-                    <div className="space-y-4">
-                      <input type="text" placeholder="Full Name" required value={kinForm.full_name} onChange={e => setKinForm({...kinForm, full_name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
-                      <input type="text" placeholder="Relationship (e.g., Sister, Father)" required value={kinForm.relationship} onChange={e => setKinForm({...kinForm, relationship: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
-                      <input type="text" placeholder="Phone Number" required value={kinForm.phone_number} onChange={e => setKinForm({...kinForm, phone_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
-                      <input type="text" placeholder="ID Number (Optional)" value={kinForm.id_number} onChange={e => setKinForm({...kinForm, id_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
-                      
-                      <div>
-                        <label className="text-sm font-bold text-slate-700 block mb-1">{viewModal.next_of_kin?.document_url ? 'Replace Photo ID' : 'Upload Photo ID'}</label>
-                        <input type="file" accept="image/*" onChange={e => setSelectedPhoto(e.target.files?.[0] || null)} className="w-full p-2 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                  {(!viewModal.next_of_kin || isEditingKin) && (
+                    <form onSubmit={handleSaveKin} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm h-fit">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-black text-lg text-slate-800">{isEditingKin ? 'Edit Next of Kin' : 'Add Next of Kin'}</h3>
+                        {isEditingKin && (
+                          <button type="button" onClick={() => { setIsEditingKin(false); setKinForm({full_name:'', relationship:'', phone_number:'', id_number:''}); setSelectedKinIdDoc(null); setSelectedKinIdDocBack(null); setSelectedKinPassport(null); }} className="text-xs font-bold text-slate-400 hover:text-slate-600 outline-none">Cancel Edit</button>
+                        )}
                       </div>
+                      
+                      <div className="space-y-4">
+                        <input type="text" placeholder="Full Name" required value={kinForm.full_name} onChange={e => setKinForm({...kinForm, full_name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
+                        <input type="text" placeholder="Relationship (e.g., Sister, Father)" required value={kinForm.relationship} onChange={e => setKinForm({...kinForm, relationship: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                        <input type="text" placeholder="Phone Number" required value={kinForm.phone_number} onChange={e => setKinForm({...kinForm, phone_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                        <input type="text" placeholder="ID Number (Optional)" value={kinForm.id_number} onChange={e => setKinForm({...kinForm, id_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">ID (Front)</label>
+                            <input type="file" accept="image/*" onChange={e => setSelectedKinIdDoc(e.target.files?.[0] || null)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">ID (Back)</label>
+                            <input type="file" accept="image/*" onChange={e => setSelectedKinIdDocBack(e.target.files?.[0] || null)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">Passport Photo</label>
+                            <input type="file" accept="image/*" onChange={e => setSelectedKinPassport(e.target.files?.[0] || null)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                          </div>
+                        </div>
 
-                      <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none">
-                        {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Saving...</> : (viewModal.next_of_kin ? 'Update Record' : 'Save Next of Kin')}
-                      </button>
-                    </div>
-                  </form>
+                        <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none">
+                          {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Saving...</> : (isEditingKin ? 'Update Record' : 'Save Next of Kin')}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
 
-              {/* TAB: GUARANTORS */}
+              {/* TAB: GUARANTORS (MULTIPLE ALLOWED WITH MULTIPLE PHOTOS EACH) */}
               {detailsTab === 'guarantors' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Existing Guarantors List */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm overflow-y-auto max-h-[600px] custom-scrollbar">
-                    <h3 className="font-black text-lg mb-4 text-slate-800">Registered Guarantors</h3>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm overflow-y-auto max-h-[700px] custom-scrollbar">
+                    <h3 className="font-black text-lg mb-4 text-slate-800">Registered Guarantors ({viewModal.guarantors?.length || 0})</h3>
                     {viewModal.guarantors?.length > 0 ? (
                       <div className="space-y-4">
                         {viewModal.guarantors.map((g: any) => (
                           <div key={g.id} className={`p-4 border rounded-xl transition-all ${editingGuarantorId === g.id ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'}`}>
-                            <div className="flex justify-between items-start">
+                            <div className="flex justify-between items-start mb-2">
                               <div>
                                 <p className="font-black text-slate-900">{g.full_name} <span className="text-xs font-normal text-slate-500">({g.relationship})</span></p>
-                                <p className="text-sm text-slate-600 mb-2">{g.phone_number} | ID: {g.id_number || 'N/A'}</p>
+                                <p className="text-sm text-slate-600">{g.phone_number} | ID: {g.id_number || 'N/A'}</p>
                               </div>
                               <div className="flex space-x-1 opacity-80 hover:opacity-100">
                                 <button onClick={() => handleEditGuarantorClick(g)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors outline-none"><Edit size={16} /></button>
                                 <button onClick={() => handleDeleteGuarantor(g.id)} className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-colors outline-none"><Trash2 size={16} /></button>
                               </div>
                             </div>
-                            {g.document_url && (
-                              <img src={g.document_url} alt="Guarantor ID" className="w-full h-32 object-cover rounded-lg border border-slate-200 mt-2" />
-                            )}
+                            
+                            <div className="flex space-x-2 mt-3 overflow-x-auto pb-2 custom-scrollbar">
+                              {g.document_url && (
+                                <div className="flex-1 min-w-[100px] group relative">
+                                  <span className="text-[10px] font-bold text-slate-400 block mb-1">ID (Front)</span>
+                                  <div onClick={() => setPreviewDoc({ file_url: g.document_url, document_type: 'Guarantor ID (Front)', created_at: g.created_at, is_readonly: true })} className="w-full h-24 bg-slate-200 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer border border-slate-200">
+                                    <img src={g.document_url} alt="ID Front" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                    <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Eye className="text-white" size={24} /></div>
+                                  </div>
+                                </div>
+                              )}
+                              {g.id_back_document_url && (
+                                <div className="flex-1 min-w-[100px] group relative">
+                                  <span className="text-[10px] font-bold text-slate-400 block mb-1">ID (Back)</span>
+                                  <div onClick={() => setPreviewDoc({ file_url: g.id_back_document_url, document_type: 'Guarantor ID (Back)', created_at: g.created_at, is_readonly: true })} className="w-full h-24 bg-slate-200 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer border border-slate-200">
+                                    <img src={g.id_back_document_url} alt="ID Back" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                    <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Eye className="text-white" size={24} /></div>
+                                  </div>
+                                </div>
+                              )}
+                              {g.passport_photo_url && (
+                                <div className="flex-1 min-w-[100px] group relative">
+                                  <span className="text-[10px] font-bold text-slate-400 block mb-1">Passport</span>
+                                  <div onClick={() => setPreviewDoc({ file_url: g.passport_photo_url, document_type: 'Guarantor Passport', created_at: g.created_at, is_readonly: true })} className="w-full h-24 bg-slate-200 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer border border-slate-200">
+                                    <img src={g.passport_photo_url} alt="Passport" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                    <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Eye className="text-white" size={24} /></div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -878,7 +924,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-black text-lg text-slate-800">{editingGuarantorId ? 'Edit Guarantor' : 'Add Guarantor'}</h3>
                       {editingGuarantorId && (
-                        <button type="button" onClick={() => { setEditingGuarantorId(null); setGuarForm({full_name:'', relationship:'', phone_number:'', id_number:''}); }} className="text-xs font-bold text-slate-400 hover:text-slate-600 outline-none">Cancel Edit</button>
+                        <button type="button" onClick={() => { setEditingGuarantorId(null); setGuarForm({full_name:'', relationship:'', phone_number:'', id_number:''}); setSelectedGuarIdDoc(null); setSelectedGuarIdDocBack(null); setSelectedGuarPassport(null); }} className="text-xs font-bold text-slate-400 hover:text-slate-600 outline-none">Cancel Edit</button>
                       )}
                     </div>
                     
@@ -888,9 +934,19 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                       <input type="text" placeholder="Phone Number" required value={guarForm.phone_number} onChange={e => setGuarForm({...guarForm, phone_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
                       <input type="text" placeholder="ID Number (Optional)" value={guarForm.id_number} onChange={e => setGuarForm({...guarForm, id_number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
                       
-                      <div>
-                        <label className="text-sm font-bold text-slate-700 block mb-1">Upload Photo ID</label>
-                        <input type="file" accept="image/*" onChange={e => setSelectedPhoto(e.target.files?.[0] || null)} className="w-full p-2 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">ID (Front)</label>
+                          <input type="file" accept="image/*" onChange={e => setSelectedGuarIdDoc(e.target.files?.[0] || null)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">ID (Back)</label>
+                          <input type="file" accept="image/*" onChange={e => setSelectedGuarIdDocBack(e.target.files?.[0] || null)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">Passport Photo</label>
+                          <input type="file" accept="image/*" onChange={e => setSelectedGuarPassport(e.target.files?.[0] || null)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                        </div>
                       </div>
 
                       <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none">
@@ -963,8 +1019,9 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                     <option value="NATIONAL_ID_FRONT">National ID (Front)</option>
                     <option value="NATIONAL_ID_BACK">National ID (Back)</option>
                     <option value="PASSPORT">Passport Photo</option>
-                    <option value="BUSINESS_LICENSE">Business License (Photo)</option>
                     <option value="KRA_PIN">KRA PIN Certificate (Photo)</option>
+                    <option value="BUSINESS_LICENSE">Business License (Document)</option>
+                    <option value="BUSINESS_SHOP_IMAGE">Business / Shop Image</option>
                   </select>
                 </div>
 
@@ -1016,7 +1073,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                 <p className="text-xs sm:text-sm text-slate-300 font-mono mt-0.5">Uploaded: {new Date(previewDoc.uploaded_at || previewDoc.created_at || Date.now()).toLocaleDateString()}</p>
               </div>
               <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
-                {canManage && (
+                {canManage && !previewDoc.is_readonly && (
                   <button
                     onClick={() => setDeleteDocModal(previewDoc)}
                     className="p-2 sm:px-4 sm:py-2 bg-red-500/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 rounded-full sm:rounded-xl transition-colors outline-none flex items-center"
@@ -1049,7 +1106,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         </div>
       )}
 
-      {/* --- 5. DELETE DOCUMENT CONFIRMATION MODAL --- */}
+      {/* --- DELETE DOCUMENT CONFIRMATION MODAL --- */}
       {deleteDocModal && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => !isProcessing && setDeleteDocModal(null)}></div>
@@ -1070,7 +1127,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         </div>
       )}
 
-      {/* --- 2. CREATE BORROWER MODAL --- */}
+      {/* --- CREATE BORROWER MODAL --- */}
       {createModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setCreateModalOpen(false)}></div>
@@ -1154,7 +1211,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         </div>
       )}
 
-      {/* --- 3. EDIT BORROWER MODAL --- */}
+      {/* --- EDIT BORROWER MODAL --- */}
       {editModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setEditModal(null)}></div>
@@ -1250,7 +1307,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         </div>
       )}
 
-      {/* --- 4. SECURE DELETE CONFIRMATION MODAL --- */}
+      {/* --- SECURE DELETE CONFIRMATION MODAL --- */}
       {deleteModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setDeleteModal(null)}></div>

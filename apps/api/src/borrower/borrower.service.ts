@@ -239,15 +239,17 @@ export class BorrowerService {
         });
     }
 
-    async addNextOfKin(borrowerId: string, data: any, documentUrl?: string) {
+    async addNextOfKin(borrowerId: string, data: any, idDocUrl?: string, idBackDocUrl?: string, passportUrl?: string) {
         return this.prisma.nextOfKin.upsert({
             where: { borrower_id: borrowerId },
-            update: {
+            update: { 
                 full_name: data.full_name,
                 relationship: data.relationship,
                 phone_number: data.phone_number,
                 id_number: data.id_number,
-                ...(documentUrl && { document_url: documentUrl })
+                ...(idDocUrl && { document_url: idDocUrl }),
+                ...(idBackDocUrl && { id_back_document_url: idBackDocUrl }),
+                ...(passportUrl && { passport_photo_url: passportUrl })
             },
             create: {
                 borrower_id: borrowerId,
@@ -255,12 +257,14 @@ export class BorrowerService {
                 relationship: data.relationship,
                 phone_number: data.phone_number,
                 id_number: data.id_number,
-                document_url: documentUrl
+                document_url: idDocUrl,
+                id_back_document_url: idBackDocUrl,
+                passport_photo_url: passportUrl
             }
         });
     }
 
-    async addGuarantor(borrowerId: string, data: any, documentUrl?: string) {
+   async addGuarantor(borrowerId: string, data: any, idDocUrl?: string, idBackDocUrl?: string, passportUrl?: string) {
         return this.prisma.guarantor.create({
             data: {
                 borrower_id: borrowerId,
@@ -268,7 +272,24 @@ export class BorrowerService {
                 relationship: data.relationship,
                 phone_number: data.phone_number,
                 id_number: data.id_number,
-                document_url: documentUrl
+                ...(idDocUrl && { document_url: idDocUrl }),
+                ...(idBackDocUrl && { id_back_document_url: idBackDocUrl }),
+                ...(passportUrl && { passport_photo_url: passportUrl })
+            }
+        });
+    }
+
+    async updateGuarantor(borrowerId: string, guarantorId: string, data: any, idDocUrl?: string, idBackDocUrl?: string, passportUrl?: string, user?: any) {
+        return this.prisma.guarantor.update({
+            where: { id: guarantorId },
+            data: {
+                full_name: data.full_name,
+                relationship: data.relationship,
+                phone_number: data.phone_number,
+                id_number: data.id_number,
+                ...(idDocUrl && { document_url: idDocUrl }),
+                ...(idBackDocUrl && { id_back_document_url: idBackDocUrl }),
+                ...(passportUrl && { passport_photo_url: passportUrl })
             }
         });
     }
@@ -284,25 +305,6 @@ export class BorrowerService {
 
         return this.prisma.nextOfKin.delete({
             where: { borrower_id: borrowerId }
-        });
-    }
-
-    async updateGuarantor(borrowerId: string, guarantorId: string, data: any, documentUrl: string | null, user: any) {
-        const borrower = await this.prisma.borrower.findUnique({ where: { id: borrowerId } });
-        if (!borrower) throw new NotFoundException('Customer profile not found.');
-        if (user.role !== 'Super Admin' && borrower.lender_id !== user.lender_id) {
-            throw new ForbiddenException('Unauthorized to modify this customer.');
-        }
-
-        return this.prisma.guarantor.update({
-            where: { id: guarantorId },
-            data: {
-                full_name: data.full_name,
-                relationship: data.relationship,
-                phone_number: data.phone_number,
-                id_number: data.id_number,
-                ...(documentUrl && { document_url: documentUrl })
-            }
         });
     }
 

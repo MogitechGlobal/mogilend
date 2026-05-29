@@ -18,6 +18,13 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
   
   const user = useAuthStore((state: any) => state.user);
 
+  // --- ROLE-BASED ACCESS CONTROL (RBAC) HELPER ---
+  const hasAccess = (allowedRoles: string[]) => {
+    if (!user) return false;
+    if (user.role === 'Super Admin') return true; // Super Admins bypass all UI restrictions
+    return allowedRoles.includes(user.role);
+  };
+
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [currentPath]);
@@ -98,7 +105,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
         lg:relative lg:translate-x-0
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        {/* Brand Header - Adjusted padding for perfect alignment */}
+        {/* Brand Header */}
         <div className="h-20 px-5 flex items-center justify-between shrink-0 relative">
           <Logo />
           <button 
@@ -117,50 +124,67 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
 
           <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-4">Core Modules</p>
 
-          <NavGroup title="Credit Admin" icon={CreditCard} menuKey="credit">
-            <NavLink path="application" label="New Application" icon={FileEdit} />
-            <NavLink path="disbursements" label="Disbursements" icon={Send} />
-            <NavLink path="repayments" label="Repayments" icon={RefreshCw} />
-          </NavGroup>
+          {/* Group 1: Credit Administration */}
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Cashier']) && (
+            <NavGroup title="Credit Admin" icon={CreditCard} menuKey="credit">
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) && <NavLink path="application" label="New Application" icon={FileEdit} />}
+              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="disbursements" label="Disbursements" icon={Send} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) && <NavLink path="repayments" label="Repayments" icon={RefreshCw} />}
+            </NavGroup>
+          )}
 
-          <NavGroup title="Customer Registry" icon={Users} menuKey="registry">
-            <NavLink path="borrowers" label="Client Database" icon={Users} />
-            <NavLink path="pending-amendments" label="Pending Amendments" icon={FileClock} />
-            <NavLink path="approvals-pending" label="Approvals Pending" icon={CheckSquare} />
-            <NavLink path="customer-transfer" label="Customer Transfer" icon={ArrowRightLeft} />
-            <NavLink path="customer-edits" label="Customer Edits" icon={UserCog} />
-          </NavGroup>
+          {/* Group 2: Customer Registry */}
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) && (
+            <NavGroup title="Customer Registry" icon={Users} menuKey="registry">
+              <NavLink path="borrowers" label="Client Database" icon={Users} />
+              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="pending-amendments" label="Pending Amendments" icon={FileClock} />}
+              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="approvals-pending" label="Approvals Pending" icon={CheckSquare} />}
+              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="customer-transfer" label="Customer Transfer" icon={ArrowRightLeft} />}
+              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="customer-edits" label="Customer Edits" icon={UserCog} />}
+            </NavGroup>
+          )}
 
-          <NavGroup title="Loan Portfolio" icon={Briefcase} menuKey="portfolio">
-            <NavLink path="active-loans" label="Active Facilities" icon={Briefcase} />
-          </NavGroup>
+          {/* Group 3: Loan Portfolio */}
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) && (
+            <NavGroup title="Loan Portfolio" icon={Briefcase} menuKey="portfolio">
+              <NavLink path="active-loans" label="Active Facilities" icon={Briefcase} />
+            </NavGroup>
+          )}
 
           <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-6">Growth & Analytics</p>
 
+          {/* Group 4: Marketing */}
           <NavGroup title="Marketing" icon={Megaphone} menuKey="marketing_group">
             <NavLink path="marketing" label="Campaign Overview" icon={Megaphone} />
             <NavLink path="marketing-leads" label="Lead Generation" icon={Target} />
           </NavGroup>
 
-          <NavGroup title="Reports & Insights" icon={PieChart} menuKey="reports">
-            <NavLink path="financial-reports" label="Financial Reports" icon={LineChart} />
-            <NavLink path="portfolio-report" label="Portfolio Analytics" icon={PieChart} />
-            <NavLink path="transaction-history" label="Transaction History" icon={History} />
-          </NavGroup>
+          {/* Group 5: Reports */}
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) && (
+            <NavGroup title="Reports & Insights" icon={PieChart} menuKey="reports">
+              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="financial-reports" label="Financial Reports" icon={LineChart} />}
+              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="portfolio-report" label="Portfolio Analytics" icon={PieChart} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) && <NavLink path="transaction-history" label="Transaction History" icon={History} />}
+            </NavGroup>
+          )}
 
           <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-6">Administration</p>
 
-          <NavGroup title="Credit Settings" icon={TrendingUp} menuKey="settings_credit">
-            <NavLink path="loan-products" label="Loan Products" icon={Package} />
-            <NavLink path="interest-rates" label="Interest Rates" icon={Percent} />
-          </NavGroup>
+          {/* Group 6: Credit Settings */}
+          {hasAccess(['Lender Admin']) && (
+            <NavGroup title="Credit Settings" icon={TrendingUp} menuKey="settings_credit">
+              <NavLink path="loan-products" label="Loan Products" icon={Package} />
+              <NavLink path="interest-rates" label="Interest Rates" icon={Percent} />
+            </NavGroup>
+          )}
 
-          {(user?.role === 'Super Admin' || user?.role === 'Lender Admin') && (
+          {/* Group 7: System Settings */}
+          {hasAccess(['Lender Admin', 'Branch Manager']) && (
             <NavGroup title="System Settings" icon={Settings} menuKey="system">
-              <NavLink path="system-config" label="System Configuration" icon={Sliders} />
+              {hasAccess(['Lender Admin']) && <NavLink path="system-config" label="System Configuration" icon={Sliders} />}
               <NavLink path="register-staff" label="User Management" icon={UserPlus} />
-              <NavLink path="branch-management" label="Branch Management" icon={UserPlus} />
-              <NavLink path="audit-ledger" label="Audit Ledger" icon={FileClock} />
+              {hasAccess(['Lender Admin']) && <NavLink path="branch-management" label="Branch Management" icon={UserPlus} />}
+              {hasAccess(['Lender Admin']) && <NavLink path="audit-ledger" label="Audit Ledger" icon={FileClock} />}
             </NavGroup>
           )}
         </nav>

@@ -11,9 +11,10 @@ import {
     UseGuards, 
     Request as NestRequest, 
     UseInterceptors, 
-    UploadedFile 
+    UploadedFile,
+    UploadedFiles,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { BorrowerService } from './borrower.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -120,36 +121,66 @@ export class BorrowerController {
 
     @Post(':id/next-of-kin')
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
-    @UseInterceptors(FileInterceptor('file'))
+    @UseInterceptors(FileFieldsInterceptor([
+        { name: 'id_document', maxCount: 1 },
+        { name: 'id_document_back', maxCount: 1 },
+        { name: 'passport_photo', maxCount: 1 }
+    ]))
     async addNextOfKin(
         @Param('id') id: string, 
         @Body() data: any, 
-        @UploadedFile() file: Express.Multer.File
+        @UploadedFiles() files: { id_document?: Express.Multer.File[], id_document_back?: Express.Multer.File[], passport_photo?: Express.Multer.File[] }
     ) {
-        let docUrl = null;
-        if (file) {
-            // Upload photo to Cloudinary
-            const uploadResult = await this.cloudinaryService.uploadFile(file, 'next-of-kin');
-            docUrl = uploadResult.secure_url;
+        let idDocUrl = null;
+        let idBackDocUrl = null;
+        let passportUrl = null;
+        
+        if (files?.id_document?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.id_document[0], 'next_of_kin');
+            idDocUrl = res.secure_url;
         }
-        return this.borrowerService.addNextOfKin(id, data, docUrl);
+        if (files?.id_document_back?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.id_document_back[0], 'next_of_kin');
+            idBackDocUrl = res.secure_url;
+        }
+        if (files?.passport_photo?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.passport_photo[0], 'next_of_kin');
+            passportUrl = res.secure_url;
+        }
+        
+        return this.borrowerService.addNextOfKin(id, data, idDocUrl, idBackDocUrl, passportUrl);
     }
 
     @Post(':id/guarantors')
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
-    @UseInterceptors(FileInterceptor('file'))
+    @UseInterceptors(FileFieldsInterceptor([
+        { name: 'id_document', maxCount: 1 },
+        { name: 'id_document_back', maxCount: 1 },
+        { name: 'passport_photo', maxCount: 1 }
+    ]))
     async addGuarantor(
         @Param('id') id: string, 
         @Body() data: any, 
-        @UploadedFile() file: Express.Multer.File
+        @UploadedFiles() files: { id_document?: Express.Multer.File[], id_document_back?: Express.Multer.File[], passport_photo?: Express.Multer.File[] }
     ) {
-        let docUrl = null;
-        if (file) {
-            // Upload photo to Cloudinary
-            const uploadResult = await this.cloudinaryService.uploadFile(file, 'guarantors');
-            docUrl = uploadResult.secure_url;
+        let idDocUrl = null;
+        let idBackDocUrl = null;
+        let passportUrl = null;
+        
+        if (files?.id_document?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.id_document[0], 'guarantors');
+            idDocUrl = res.secure_url;
         }
-        return this.borrowerService.addGuarantor(id, data, docUrl);
+        if (files?.id_document_back?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.id_document_back[0], 'guarantors');
+            idBackDocUrl = res.secure_url;
+        }
+        if (files?.passport_photo?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.passport_photo[0], 'guarantors');
+            passportUrl = res.secure_url;
+        }
+        
+        return this.borrowerService.addGuarantor(id, data, idDocUrl, idBackDocUrl, passportUrl);
     }
 
     @Delete(':id/next-of-kin')
@@ -163,20 +194,36 @@ export class BorrowerController {
 
     @Patch(':id/guarantors/:guarantorId')
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
-    @UseInterceptors(FileInterceptor('file'))
+    @UseInterceptors(FileFieldsInterceptor([
+        { name: 'id_document', maxCount: 1 },
+        { name: 'id_document_back', maxCount: 1 },
+        { name: 'passport_photo', maxCount: 1 }
+    ]))
     async updateGuarantor(
         @Param('id') borrowerId: string,
         @Param('guarantorId') guarantorId: string,
         @Body() data: any,
-        @UploadedFile() file: Express.Multer.File,
+        @UploadedFiles() files: { id_document?: Express.Multer.File[], id_document_back?: Express.Multer.File[], passport_photo?: Express.Multer.File[] },
         @NestRequest() req: any
     ) {
-        let docUrl = null;
-        if (file) {
-            const uploadResult = await this.cloudinaryService.uploadFile(file, 'guarantors');
-            docUrl = uploadResult.secure_url;
+        let idDocUrl = null;
+        let idBackDocUrl = null;
+        let passportUrl = null;
+        
+        if (files?.id_document?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.id_document[0], 'guarantors');
+            idDocUrl = res.secure_url;
         }
-        return this.borrowerService.updateGuarantor(borrowerId, guarantorId, data, docUrl, req.user);
+        if (files?.id_document_back?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.id_document_back[0], 'guarantors');
+            idBackDocUrl = res.secure_url;
+        }
+        if (files?.passport_photo?.[0]) {
+            const res = await this.cloudinaryService.uploadFile(files.passport_photo[0], 'guarantors');
+            passportUrl = res.secure_url;
+        }
+        
+        return this.borrowerService.updateGuarantor(borrowerId, guarantorId, data, idDocUrl, idBackDocUrl, passportUrl, req.user);
     }
 
     @Delete(':id/guarantors/:guarantorId')

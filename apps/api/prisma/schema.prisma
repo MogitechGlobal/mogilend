@@ -198,27 +198,31 @@ model AuditLog {
 }
 
 model NextOfKin {
-  id           String   @id @default(uuid())
-  borrower_id  String   @unique // One Next of Kin per borrower
-  full_name    String
-  relationship String
-  phone_number String
-  id_number    String?
-  document_url String? // Cloudinary URL for the photo ID
-  created_at   DateTime @default(now())
+  id                   String   @id @default(uuid())
+  borrower_id          String   @unique
+  full_name            String
+  relationship         String
+  phone_number         String
+  id_number            String?
+  document_url         String?  // Cloudinary URL for ID Front
+  id_back_document_url String?  // ---> ADD THIS LINE: ID Back
+  passport_photo_url   String?  // ---> ADD THIS LINE: Passport Photo
+  created_at           DateTime @default(now())
 
   borrower Borrower @relation(fields: [borrower_id], references: [id], onDelete: Cascade)
 }
 
 model Guarantor {
-  id           String   @id @default(uuid())
-  borrower_id  String
-  full_name    String
-  relationship String
-  phone_number String
-  id_number    String?
-  document_url String? // Cloudinary URL for the photo ID
-  created_at   DateTime @default(now())
+  id                   String   @id @default(uuid())
+  borrower_id          String
+  full_name            String
+  relationship         String
+  phone_number         String
+  id_number            String?
+  document_url         String?  // Cloudinary URL for ID Front
+  id_back_document_url String?  // ---> ADD THIS LINE: ID Back
+  passport_photo_url   String?  // Cloudinary URL for Passport Photo
+  created_at           DateTime @default(now())
 
-  borrower Borrower @relation(fields: [borrower_id], references: [id], onDelete: Cascade)
+  borrower             Borrower @relation(fields: [borrower_id], references: [id], onDelete: Cascade)
 }
