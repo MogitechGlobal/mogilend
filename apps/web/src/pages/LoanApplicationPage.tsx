@@ -29,20 +29,36 @@ export const LoanApplicationPage = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [success, setSuccess] = useState(false);
 
+  // --- HIERARCHICAL DATA ISOLATION QUERY BUILDER ---
+  const buildBorrowersQuery = () => {
+    const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
+    let query = `/borrowers?lender_id=${activeLenderId}`;
+    
+    // If Loan Officer: Restrict to their own profile ID
+    if (user?.role === 'Loan Officer') {
+      query += `&user_id=${user.id}`;
+    } 
+    // If Branch Manager: Restrict to their entire branch
+    else if (user?.role === 'Branch Manager' && user?.branch_id) {
+      query += `&branch_id=${user.branch_id}`;
+    }
+    return query;
+  };
+
   useEffect(() => {
     const loadData = async () => {
       setLoadingData(true);
       try {
         const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
-        const query = `?lender_id=${activeLenderId}`;
+        const productsQuery = `/loan-products?lender_id=${activeLenderId}`;
 
         const [bRes, pRes] = await Promise.all([
-          api.get(`/borrowers${query}`),
-          api.get(`/loan-products${query}`)
+          api.get(buildBorrowersQuery()),
+          api.get(productsQuery)
         ]);
 
         // Only show verified customers for new loans
-        setBorrowers(bRes.data.filter((b: any) => b.kyc_status === 'VERIFIED' || !b.kyc_status));
+        setBorrowers(bRes.data.filter((b: any) => b.kyc_status === 'VERIFIED'));
         setProducts(pRes.data.filter((p: any) => p.is_active));
       } catch (err: any) {
         console.error('Failed to load application data:', err);
@@ -115,9 +131,7 @@ export const LoanApplicationPage = ({
       });
 
       setSuccess(true);
-      setTimeout(() => {
-        onNavigate('disbursements'); // Redirect to Queue after success
-      }, 2000);
+      // NOTE: We removed the automatic redirection here so Loan Officers don't hit "Access Denied"
 
     } catch (err: any) {
       setErrorMsg(err.response?.data?.message || 'Application failed due to system constraints.');
@@ -139,16 +153,50 @@ export const LoanApplicationPage = ({
     }
   };
 
+  // --- REVISED SUCCESS VIEW ---
   if (success) {
+    const canViewDisbursements = ['Super Admin', 'Lender Admin', 'Branch Manager'].includes(user?.role);
+
     return (
-      <div className="max-w-3xl mx-auto mt-20 text-center animate-fade-in">
+      <div className="max-w-3xl mx-auto mt-16 text-center animate-fade-in bg-white p-10 sm:p-16 rounded-[2.5rem] shadow-sm border border-slate-200">
         <div className="w-24 h-24 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-          <CheckCircle2 size={48} />
+          <CheckCircle2 size={48} strokeWidth={2.5} />
         </div>
-        <h2 className="text-4xl font-black text-slate-900 tracking-tight mb-4">Application Submitted</h2>
-        <p className="text-slate-500 text-lg font-medium">The loan agreement has been generated and sent to the Disbursement Queue for managerial approval.</p>
-        <div className="mt-8 flex justify-center">
-          <Loader2 className="animate-spin text-blue-500" size={32} />
+        <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight mb-4">Loan Submitted Successfully</h2>
+        <p className="text-slate-500 text-lg font-medium max-w-xl mx-auto mb-10 leading-relaxed">
+          The application has been generated and sent to the management queue. It is currently waiting for approval and disbursement.
+        </p>
+        
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <button 
+            onClick={() => {
+              setSuccess(false);
+              setIsSubmitting(false);
+              setSelectedBorrower('');
+              setSelectedProduct(null);
+              setAmount('');
+              setTerm('');
+            }}
+            className="w-full sm:w-auto px-8 py-3.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-all outline-none"
+          >
+            Start New Application
+          </button>
+
+          {canViewDisbursements ? (
+            <button 
+              onClick={() => onNavigate('disbursements')}
+              className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all outline-none"
+            >
+              Go to Disbursements Queue
+            </button>
+          ) : (
+            <button 
+              onClick={() => onNavigate('dashboard')}
+              className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all outline-none"
+            >
+              Return to Dashboard
+            </button>
+          )}
         </div>
       </div>
     );
@@ -280,7 +328,6 @@ export const LoanApplicationPage = ({
                           placeholder="1"
                         />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 uppercase tracking-widest">
-                          {/* DYNAMIC TERM LABEL INJECTED HERE */}
                           {getTermLabel(selectedProduct?.repayment_cycle)}
                         </span>
                       </div>
@@ -308,7 +355,7 @@ export const LoanApplicationPage = ({
             </form>
           </div>
 
-          {/* Right Column: Repayment Preview */}
+          {/* Right Column: Amortization Preview */}
           <div className="xl:col-span-1 order-1 xl:order-2">
             <div className="bg-[#0B1121] text-white p-8 rounded-3xl shadow-2xl sticky top-24 border border-slate-800">
               <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/10">

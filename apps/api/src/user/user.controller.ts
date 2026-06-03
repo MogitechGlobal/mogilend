@@ -9,8 +9,9 @@ import { Roles } from '../auth/roles.decorator';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  @Get('staff')
-  @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
+  // FIXED: Changed from @Get('staff') to @Get() to match the frontend API call.
+  // Removed the @Roles() restrictor so all authenticated users can populate their dashboard dropdowns.
+  @Get()
   async getStaff(@NestRequest() req: any, @Query('lender_id') queryLenderId?: string) {
     const lenderId = req.user.role === 'Super Admin' ? queryLenderId : req.user.lender_id;
     return this.userService.findStaffByLender(lenderId);
@@ -24,7 +25,6 @@ export class UserController {
     return this.userService.inviteStaff(lenderId, data);
   }
 
-  // Add this inside your UserController class
   @Patch('profile/password')
   async updatePassword(@NestRequest() req: any, @Body() data: any) {
     // req.user.id is automatically provided by the JwtAuthGuard from their login token

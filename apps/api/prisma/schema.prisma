@@ -37,6 +37,7 @@ model User {
   role   Role    @relation(fields: [role_id], references: [id])
   lender Lender? @relation(fields: [lender_id], references: [id])
   branch Branch? @relation(fields: [branch_id], references: [id])
+  borrowers Borrower[]
 }
 
 model Lender {
@@ -79,6 +80,7 @@ model Borrower {
   id                String   @id @default(uuid())
   lender_id         String
   branch_id         String
+  user_id           String?  // Links borrower to specific officer
   national_id       String   @unique // Unique across the platform
   first_name        String
   last_name         String
@@ -93,6 +95,7 @@ model Borrower {
 
   lender      Lender             @relation(fields: [lender_id], references: [id])
   branch      Branch             @relation(fields: [branch_id], references: [id])
+  user        User?              @relation(fields: [user_id], references: [id])
   documents   BorrowerDocument[]
   loans       Loan[]
   next_of_kin NextOfKin?

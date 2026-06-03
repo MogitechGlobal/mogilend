@@ -35,13 +35,19 @@ export class BorrowerService {
                 lender_id: user.lender_id || data.lender_id,
                 branch_id: data.branch_id,
                 email: data.email,
+                user_id: user.id || data.user_id, // <-- ADDED: Link borrower to the Loan Officer
             },
         });
     }
 
-    async findByLender(lenderId: string) {
+    // <-- ADDED: Support for hierarchical filtering parameters
+    async findByLender(lenderId: string, branchId?: string, userId?: string) {
         return this.prisma.borrower.findMany({
-            where: { lender_id: lenderId },
+            where: { 
+                lender_id: lenderId,
+                ...(branchId && { branch_id: branchId }), // Filter by Branch if provided
+                ...(userId && { user_id: userId })        // Filter by Officer if provided
+            },
             include: {
                 documents: { orderBy: { uploaded_at: 'desc' } },
                 branch: true,
@@ -125,6 +131,7 @@ export class BorrowerService {
                     phone_number: data.phone_number,
                     lender_id: lenderId,
                     branch_id: branchId,
+                    user_id: user.id || data.user_id, // <-- ADDED: Link borrower to the Loan Officer
                 },
             });
 
@@ -176,16 +183,14 @@ export class BorrowerService {
         });
     }
 
-    // --- NEW: CUSTOMER TRANSFER LOGIC ---
+    // --- CUSTOMER TRANSFER LOGIC ---
     async getBorrowersForTransfer(user: any) {
         const whereClause: any = {};
 
-        // 1. Tenant Isolation
         if (user.role !== 'Super Admin') {
             whereClause.lender_id = user.lender_id;
         }
 
-        // 2. Branch Managers can only transfer customers currently assigned to their branch
         if (user.role === 'Branch Manager') {
             whereClause.branch_id = user.branch_id;
         }
@@ -210,29 +215,24 @@ export class BorrowerService {
 
         if (!borrower) throw new NotFoundException('Customer profile not found.');
 
-        // 1. Enforce Tenant Isolation
         if (user.role !== 'Super Admin' && borrower.lender_id !== user.lender_id) {
             throw new ForbiddenException('Unauthorized to modify this customer.');
         }
 
-        // 2. Enforce Branch Manager Restrictions
         if (user.role === 'Branch Manager' && borrower.branch_id !== user.branch_id) {
             throw new ForbiddenException('You can only initiate transfers for customers currently in your branch.');
         }
 
-        // 3. Verify Target Branch exists and belongs to the same Lender
         const targetBranch = await this.prisma.branch.findUnique({ where: { id: targetBranchId } });
         if (!targetBranch) throw new NotFoundException('Destination branch not found.');
         if (targetBranch.lender_id !== borrower.lender_id) {
             throw new BadRequestException('Cannot transfer customer to a branch belonging to a different institution.');
         }
 
-        // 4. Ensure they aren't transferring to the same branch
         if (borrower.branch_id === targetBranchId) {
             throw new BadRequestException('Customer is already assigned to this branch.');
         }
 
-        // 5. Execute the transfer
         return this.prisma.borrower.update({
             where: { id: borrowerId },
             data: { branch_id: targetBranchId }

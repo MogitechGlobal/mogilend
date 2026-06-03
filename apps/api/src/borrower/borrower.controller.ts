@@ -32,7 +32,9 @@ export class BorrowerController {
     @Get()
     async getBorrowers(
         @NestRequest() req: any,
-        @Query('lender_id') queryLenderId?: string
+        @Query('lender_id') queryLenderId?: string,
+        @Query('branch_id') queryBranchId?: string, // <-- Catch the Branch Manager query
+        @Query('user_id') queryUserId?: string      // <-- Catch the Loan Officer query
     ) {
         let lenderId = req.user.lender_id;
 
@@ -43,9 +45,10 @@ export class BorrowerController {
             lenderId = queryLenderId;
         }
 
-        return this.borrowerService.findByLender(lenderId);
+        // Pass all 3 parameters down to the service for hierarchical filtering
+        return this.borrowerService.findByLender(lenderId, queryBranchId, queryUserId);
     }
-
+    
     // --- NEW: Customer Transfer Endpoints ---
     @Get('transfer-list')
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager')

@@ -25,11 +25,26 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
+  // --- HIERARCHICAL DATA ISOLATION QUERY BUILDER ---
+  const buildFetchQuery = () => {
+    const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
+    let query = `/borrowers?lender_id=${activeLenderId}`;
+    
+    // If Loan Officer: Restrict to their own profile ID
+    if (user?.role === 'Loan Officer') {
+      query += `&user_id=${user.id}`;
+    } 
+    // If Branch Manager: Restrict to their entire branch
+    else if (user?.role === 'Branch Manager' && user?.branch_id) {
+      query += `&branch_id=${user.branch_id}`;
+    }
+    return query;
+  };
+
   const loadBorrowers = async () => {
     setIsLoading(true);
     try {
-      const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
-      const response = await api.get(`/borrowers?lender_id=${activeLenderId}`);
+      const response = await api.get(buildFetchQuery());
       setBorrowers(response.data);
     } catch (error) {
       console.error('Failed to fetch borrowers:', error);
@@ -68,7 +83,12 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
   // Reset Kin Edit state safely on tab or profile change
   useEffect(() => {
     setIsEditingKin(false);
-    setKinForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
+    setKinForm({
+      full_name: viewModal?.next_of_kin?.full_name || '',
+      relationship: viewModal?.next_of_kin?.relationship || '',
+      phone_number: viewModal?.next_of_kin?.phone_number || '',
+      id_number: viewModal?.next_of_kin?.id_number || ''
+    });
     setSelectedKinIdDoc(null);
     setSelectedKinIdDocBack(null);
     setSelectedKinPassport(null);
@@ -88,7 +108,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
   // Form State
   const [formData, setFormData] = useState({
     first_name: '', last_name: '', national_id: '', phone_number: '',
-    email: '', gender: 'MALE', address: '', branch_id: ''
+    email: '', gender: 'MALE', address: '', branch_id: user?.branch_id || ''
   });
 
   const [editFormData, setEditFormData] = useState<any>({});
@@ -98,7 +118,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     try {
       const lenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
       const [borrowersRes, branchesRes] = await Promise.all([
-        api.get(`/borrowers?lender_id=${lenderId}`),
+        api.get(buildFetchQuery()),
         api.get(`/branches?lender_id=${lenderId}`)
       ]);
       setBorrowers(borrowersRes.data);
@@ -149,11 +169,12 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       const payload = {
         ...formData,
         email: formData.email.trim() === '' ? undefined : formData.email.trim(),
-        lender_id: user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e'
+        lender_id: user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e',
+        user_id: user?.id // ATTACH LOAN OFFICER TO CUSTOMER
       };
       await api.post('/borrowers', payload);
       setCreateModalOpen(false);
-      setFormData({ first_name: '', last_name: '', national_id: '', phone_number: '', email: '', gender: 'MALE', address: '', branch_id: '' });
+      setFormData({ first_name: '', last_name: '', national_id: '', phone_number: '', email: '', gender: 'MALE', address: '', branch_id: user?.branch_id || '' });
       loadData();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to register customer.');
@@ -193,6 +214,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     }
   };
 
+  // --- REPAIRED: Network Timeout for Single Document Upload ---
   const handleDocumentUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadForm.file || !viewModal) return;
@@ -204,14 +226,15 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       formPayload.append('document_type', uploadForm.type);
 
       await api.post(`/borrowers/${viewModal.id}/documents`, formPayload, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000 // 2 minutes specific timeout for large file processing
       });
 
       setUploadForm({ type: 'NATIONAL_ID_FRONT', file: null });
       setUploadDocModalOpen(false);
       loadData();
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to upload document.');
+      alert(error.response?.data?.message || 'Upload timeout. The image may still be processing in the background. Please refresh in a moment.');
     } finally {
       setIsProcessing(false);
     }
@@ -249,12 +272,12 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
   const refreshViewModal = async () => {
     loadBorrowers(); 
-    const response = await api.get(`/borrowers?lender_id=${user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e'}`);
+    const response = await api.get(buildFetchQuery());
     const updatedBorrower = response.data.find((b: any) => b.id === viewModal?.id);
     if (updatedBorrower) setViewModal(updatedBorrower);
   };
 
-  // --- NEXT OF KIN HANDLERS ---
+  // --- REPAIRED: Next Of Kin Upload (Added Timeout & Data Cleaning) ---
   const handleEditKinClick = () => {
     setKinForm({
       full_name: viewModal.next_of_kin.full_name,
@@ -273,13 +296,19 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     setIsUploading(true);
     try {
       const formPayload = new FormData();
-      Object.entries(kinForm).forEach(([key, value]) => formPayload.append(key, value as string));
+      // Drop empty fields to avoid backend validation errors
+      Object.entries(kinForm).forEach(([key, value]) => {
+        if (value?.trim() !== '') formPayload.append(key, value as string);
+      });
       
       if (selectedKinIdDoc) formPayload.append('id_document', selectedKinIdDoc);
       if (selectedKinIdDocBack) formPayload.append('id_document_back', selectedKinIdDocBack);
       if (selectedKinPassport) formPayload.append('passport_photo', selectedKinPassport);
 
-      await api.post(`/borrowers/${viewModal.id}/next-of-kin`, formPayload, { headers: { 'Content-Type': 'multipart/form-data' }});
+      await api.post(`/borrowers/${viewModal.id}/next-of-kin`, formPayload, { 
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000 // 2 Minutes to allow Cloudinary sufficient time
+      });
       
       setSelectedKinIdDoc(null);
       setSelectedKinIdDocBack(null);
@@ -287,7 +316,11 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       setIsEditingKin(false);
       setKinForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
       await refreshViewModal();
-    } catch (error) { alert('Failed to save Next of Kin.'); } finally { setIsUploading(false); }
+    } catch (error: any) { 
+      alert(error.response?.data?.message || 'Network timeout. Images may still be uploading in the background. Please wait a moment and close/reopen this profile to check.'); 
+    } finally { 
+      setIsUploading(false); 
+    }
   };
 
   const handleDeleteKin = async () => {
@@ -300,7 +333,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     } catch (error) { alert('Failed to delete Next of Kin.'); }
   };
 
-  // --- GUARANTOR HANDLERS ---
+  // --- REPAIRED: Guarantor Upload (Added Timeout & Data Cleaning) ---
   const handleEditGuarantorClick = (g: any) => {
     setEditingGuarantorId(g.id);
     setGuarForm({ full_name: g.full_name, relationship: g.relationship, phone_number: g.phone_number, id_number: g.id_number || '' });
@@ -314,16 +347,24 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     setIsUploading(true);
     try {
       const formPayload = new FormData();
-      Object.entries(guarForm).forEach(([key, value]) => formPayload.append(key, value as string));
+      // Drop empty strings so Prisma/backend doesn't crash validating empty formats
+      Object.entries(guarForm).forEach(([key, value]) => {
+        if (value?.trim() !== '') formPayload.append(key, value as string);
+      });
       
       if (selectedGuarIdDoc) formPayload.append('id_document', selectedGuarIdDoc);
       if (selectedGuarIdDocBack) formPayload.append('id_document_back', selectedGuarIdDocBack);
       if (selectedGuarPassport) formPayload.append('passport_photo', selectedGuarPassport);
 
+      const requestConfig = { 
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000 // Override Axios defaults. Allow 2 full minutes for heavy operations.
+      };
+
       if (editingGuarantorId) {
-        await api.patch(`/borrowers/${viewModal.id}/guarantors/${editingGuarantorId}`, formPayload, { headers: { 'Content-Type': 'multipart/form-data' }});
+        await api.patch(`/borrowers/${viewModal.id}/guarantors/${editingGuarantorId}`, formPayload, requestConfig);
       } else {
-        await api.post(`/borrowers/${viewModal.id}/guarantors`, formPayload, { headers: { 'Content-Type': 'multipart/form-data' }});
+        await api.post(`/borrowers/${viewModal.id}/guarantors`, formPayload, requestConfig);
       }
 
       setSelectedGuarIdDoc(null);
@@ -332,7 +373,11 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       setEditingGuarantorId(null);
       setGuarForm({ full_name: '', relationship: '', phone_number: '', id_number: '' });
       await refreshViewModal();
-    } catch (error) { alert('Failed to save Guarantor.'); } finally { setIsUploading(false); }
+    } catch (error: any) { 
+      alert(error.response?.data?.message || 'Network timeout. Images may still be uploading in the background. Please wait a moment before trying again to avoid duplicates.'); 
+    } finally { 
+      setIsUploading(false); 
+    }
   };
 
   const handleDeleteGuarantor = async (gid: string) => {
@@ -367,16 +412,18 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
           </div>
 
           <div className="flex gap-2">
-            <button
-              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className={`p-2.5 border rounded-xl transition-colors outline-none flex items-center justify-center shadow-sm ${showAdvancedFilters || branchFilter !== 'ALL' || dateRange.start || dateRange.end
-                ? 'bg-blue-50 border-blue-200 text-blue-600'
-                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-                }`}
-              title="Advanced Filters"
-            >
-              <Filter size={18} />
-            </button>
+            {['Super Admin', 'Lender Admin'].includes(user?.role) && (
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`p-2.5 border rounded-xl transition-colors outline-none flex items-center justify-center shadow-sm ${showAdvancedFilters || branchFilter !== 'ALL' || dateRange.start || dateRange.end
+                  ? 'bg-blue-50 border-blue-200 text-blue-600'
+                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                  }`}
+                title="Advanced Filters"
+              >
+                <Filter size={18} />
+              </button>
+            )}
 
             <button
               onClick={() => setCreateModalOpen(true)}
@@ -388,8 +435,8 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         </div>
       </div>
 
-      {/* Advanced Filters Panel */}
-      {showAdvancedFilters && (
+      {/* Advanced Filters Panel (Admins Only) */}
+      {showAdvancedFilters && ['Super Admin', 'Lender Admin'].includes(user?.role) && (
         <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6 animate-fade-in grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 shadow-inner">
           <div className="md:col-span-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><Building2 size={12} className="mr-1.5" /> Filter by Branch</label>
@@ -610,7 +657,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
               </div>
             </div>
 
-            {/* In-Modal Navigation Tabs (Slimmer on mobile) */}
+            {/* In-Modal Navigation Tabs */}
             <div className="flex px-4 sm:px-8 bg-white border-b border-slate-200 shrink-0 overflow-x-auto custom-scrollbar shadow-sm z-10">
               <button onClick={() => setDetailsTab('overview')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Profile Overview</button>
               <button onClick={() => setDetailsTab('loans')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'loans' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Loan History <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.loans?.length || 0}</span></button>
@@ -852,8 +899,8 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                           </div>
                         </div>
 
-                        <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none">
-                          {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Saving...</> : (isEditingKin ? 'Update Record' : 'Save Next of Kin')}
+                        <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none flex items-center justify-center">
+                          {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Uploading Images (Please wait)...</> : (isEditingKin ? 'Update Record' : 'Save Next of Kin')}
                         </button>
                       </div>
                     </form>
@@ -949,8 +996,8 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                         </div>
                       </div>
 
-                      <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none">
-                        {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Saving...</> : (editingGuarantorId ? 'Update Record' : 'Add Guarantor')}
+                      <button type="submit" disabled={isUploading} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 outline-none flex items-center justify-center">
+                        {isUploading ? <><Loader2 size={16} className="animate-spin inline mr-2" /> Uploading Images (Please wait)...</> : (editingGuarantorId ? 'Update Record' : 'Add Guarantor')}
                       </button>
                     </div>
                   </form>
