@@ -33,8 +33,8 @@ export class BorrowerController {
     async getBorrowers(
         @NestRequest() req: any,
         @Query('lender_id') queryLenderId?: string,
-        @Query('branch_id') queryBranchId?: string, // <-- Catch the Branch Manager query
-        @Query('user_id') queryUserId?: string      // <-- Catch the Loan Officer query
+        @Query('branch_id') queryBranchId?: string,
+        @Query('user_id') queryUserId?: string 
     ) {
         let lenderId = req.user.lender_id;
 
@@ -45,28 +45,26 @@ export class BorrowerController {
             lenderId = queryLenderId;
         }
 
-        // Pass all 3 parameters down to the service for hierarchical filtering
         return this.borrowerService.findByLender(lenderId, queryBranchId, queryUserId);
     }
     
-    // --- NEW: Customer Transfer Endpoints ---
     @Get('transfer-list')
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
     async getBorrowersForTransfer(@NestRequest() req: any) {
         return this.borrowerService.getBorrowersForTransfer(req.user);
     }
 
+    // UPDATED: Now takes the full payload body instead of just the branch string
     @Patch(':id/transfer')
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager')
     async transferCustomer(
         @NestRequest() req: any, 
         @Param('id') borrowerId: string, 
-        @Body('target_branch_id') targetBranchId: string
+        @Body() payload: { target_branch_id: string, target_officer_id?: string }
     ) {
-        return this.borrowerService.transferCustomer(req.user, borrowerId, targetBranchId);
+        return this.borrowerService.transferCustomer(req.user, borrowerId, payload);
     }
 
-    // --- EXISTING LOGIC ---
     @Post()
     @Roles('Super Admin', 'Lender Admin', 'Branch Manager', 'Loan Officer')
     async createBorrower(@NestRequest() req: any, @Body() data: any) {

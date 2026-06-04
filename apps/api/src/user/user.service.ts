@@ -11,7 +11,8 @@ export class UserService {
     private mailService: MailService
   ) {}
 
-  async findStaffByLender(lenderId: string) {
+  // Explicitly allow null or undefined in the parameter
+  async findStaffByLender(lenderId?: string | null) {
     if (!lenderId) return [];
     
     return this.prisma.user.findMany({
@@ -24,10 +25,10 @@ export class UserService {
     });
   }
 
-  async inviteStaff(lenderId: string, data: any) {
+  // Explicitly allow null or undefined, then catch it with the BadRequestException
+  async inviteStaff(lenderId: string | null | undefined, data: any) {
     if (!lenderId) throw new BadRequestException('Lender ID is required.');
 
-    // 1. Check if email is already in use globally
     const existingUser = await this.prisma.user.findUnique({
       where: { email: data.email }
     });
@@ -36,7 +37,6 @@ export class UserService {
       throw new ConflictException('A user with this email already exists in the system.');
     }
 
-    // 2. Resolve the requested Role ID from the name string
     const role = await this.prisma.role.findUnique({
       where: { name: data.role_name }
     });
@@ -45,14 +45,14 @@ export class UserService {
       throw new BadRequestException(`Role '${data.role_name}' does not exist.`);
     }
 
-    // 3. Generate a secure, temporary password
     const tempPassword = crypto.randomBytes(6).toString('hex');
     const passwordHash = await bcrypt.hash(tempPassword, 10);
+    
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24);
 
-    // 4. Get Lender Name for the email
     const lender = await this.prisma.lender.findUnique({ where: { id: lenderId }});
 
-    // 5. Create the User
     const newUser = await this.prisma.user.create({
       data: {
         first_name: data.first_name,
@@ -63,11 +63,12 @@ export class UserService {
         role_id: role.id,
         lender_id: lenderId,
         branch_id: data.branch_id,
-        is_active: true
+        is_active: true,
+        requires_password_change: true,
+        invite_expires_at: expiresAt
       }
     });
 
-    // 6. Dispatch the welcome email with credentials
     await this.mailService.sendLenderWelcomeEmail(
       data.email, 
       lender?.name || 'MogiLend Partner', 
@@ -80,7 +81,40 @@ export class UserService {
     };
   }
 
-  // Add this inside your UserService class
+  async resendInvite(adminUser: any, targetUserId: string) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }});
+    if (!target) throw new NotFoundException('User not found.');
+
+    if (adminUser.role !== 'Super Admin' && target.lender_id !== adminUser.lender_id) {
+      throw new ForbiddenException('Unauthorized to modify this user.');
+    }
+
+    const tempPassword = crypto.randomBytes(6).toString('hex');
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24);
+
+    await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: {
+        password_hash: passwordHash,
+        requires_password_change: true,
+        invite_expires_at: expiresAt
+      }
+    });
+
+    const lender = await this.prisma.lender.findUnique({ where: { id: target.lender_id as string }});
+
+    await this.mailService.sendLenderWelcomeEmail(
+      target.email, 
+      lender?.name || 'MogiLend Partner', 
+      tempPassword
+    );
+
+    return { message: 'New temporary password generated and invite resent successfully.' };
+  }
+
   async updatePassword(userId: string, data: any) {
     if (!data.current_password || !data.new_password) {
       throw new BadRequestException('Both current and new passwords are required.');
@@ -90,23 +124,24 @@ export class UserService {
       where: { id: userId }
     });
 
-    if (!user) {
-      throw new NotFoundException('User account not found.');
-    }
+    if (!user) throw new NotFoundException('User account not found.');
 
-    // 1. Verify the current (temporary) password
     const isMatch = await bcrypt.compare(data.current_password, user.password_hash);
-    if (!isMatch) {
-      throw new BadRequestException('The current password provided is incorrect.');
+    if (!isMatch) throw new BadRequestException('The current password provided is incorrect.');
+
+    if (user.requires_password_change && user.invite_expires_at && new Date() > user.invite_expires_at) {
+        throw new ForbiddenException('Your temporary password has expired. Please request a new invite from your administrator.');
     }
 
-    // 2. Hash the new secure password
     const newPasswordHash = await bcrypt.hash(data.new_password, 10);
 
-    // 3. Update the database
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password_hash: newPasswordHash }
+      data: { 
+          password_hash: newPasswordHash,
+          requires_password_change: false, 
+          invite_expires_at: null 
+      }
     });
 
     return { message: 'Password updated successfully. Your account is now secure.' };
@@ -116,12 +151,10 @@ export class UserService {
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId }});
     if (!target) throw new NotFoundException('User not found.');
 
-    // Prevent cross-tenant modification
     if (adminUser.role !== 'Super Admin' && target.lender_id !== adminUser.lender_id) {
       throw new ForbiddenException('Unauthorized to modify this user.');
     }
 
-    // Prevent an admin from accidentally suspending themselves
     if (adminUser.id === targetUserId) {
       throw new BadRequestException('You cannot suspend your own active session.');
     }
@@ -136,14 +169,12 @@ export class UserService {
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId }});
     if (!target) throw new NotFoundException('User not found.');
 
-    // Tenant isolation
     if (adminUser.role !== 'Super Admin' && target.lender_id !== adminUser.lender_id) {
       throw new ForbiddenException('Unauthorized to modify this user.');
     }
 
     const updateData: any = { branch_id: data.branch_id };
 
-    // Resolve new role if it was changed
     if (data.role_name) {
       const role = await this.prisma.role.findUnique({ where: { name: data.role_name }});
       if (!role) throw new BadRequestException(`Role '${data.role_name}' not found.`);

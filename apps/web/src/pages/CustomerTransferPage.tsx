@@ -9,44 +9,121 @@ import {
 export const CustomerTransferPage = () => {
   const user = useAuthStore((state: any) => state.user);
   
-  const [borrowers, setBorrowers] = useState<any[]>([]);
+  // --- CORE DATA STATE ---
+  const [rawBorrowers, setRawBorrowers] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [officers, setOfficers] = useState<any[]>([]);
+  const [lenders, setLenders] = useState<{id: string, name: string}[]>([]);
+  
+  // --- TENANT ISOLATION STATE ---
+  const [activeLenderId, setActiveLenderId] = useState(user?.lender_id || '');
+  const [isLoadingBorrowers, setIsLoadingBorrowers] = useState(true);
+  const [isLoadingTenantData, setIsLoadingTenantData] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Transfer Modal State
+  // --- MODAL STATE ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedBorrower, setSelectedBorrower] = useState<any>(null);
   const [targetBranchId, setTargetBranchId] = useState('');
+  const [targetOfficerId, setTargetOfficerId] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const loadData = async () => {
-    setIsLoading(true);
+  // 1. Fetch Global/Tenant Borrowers & Exact Institution Names
+  const fetchBorrowers = async () => {
+    setIsLoadingBorrowers(true);
     try {
-      const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e'; // Super Admin fallback
-      
-      const [borrowersRes, branchesRes] = await Promise.all([
-        api.get('/borrowers/transfer-list'),
-        api.get(`/branches?lender_id=${activeLenderId}`)
-      ]);
-      
-      setBorrowers(borrowersRes.data);
-      setBranches(branchesRes.data);
+      let fetchedLenders: {id: string, name: string}[] = [];
+
+      // A: Super Admin - Securely fetch the master list of all institutions
+      if (user?.role === 'Super Admin') {
+        try {
+          const lendersRes = await api.get('/lenders');
+          fetchedLenders = lendersRes.data.map((l: any) => ({ id: l.id, name: l.name }));
+          setLenders(fetchedLenders);
+          
+          // Auto-select the first available institution if none is strictly set
+          if (fetchedLenders.length > 0 && (!activeLenderId || !fetchedLenders.some(l => l.id === activeLenderId))) {
+            setActiveLenderId(fetchedLenders[0].id);
+          }
+        } catch (e) {
+          console.warn("Could not fetch /lenders directly, falling back to extraction.");
+        }
+      }
+
+      // B: Fetch Borrowers List
+      const response = await api.get('/borrowers/transfer-list');
+      const globalBorrowers = response.data || [];
+      setRawBorrowers(globalBorrowers);
+
+      // C: Fallback - Extract institutions from borrowers if /lenders endpoint failed
+      if (user?.role === 'Super Admin' && fetchedLenders.length === 0) {
+        const uniqueLendersMap = new Map();
+        globalBorrowers.forEach((b: any) => {
+          if (b.lender_id && !uniqueLendersMap.has(b.lender_id)) {
+            uniqueLendersMap.set(b.lender_id, b.lender?.name || `Institution (${b.lender_id.substring(0, 8)})`);
+          }
+        });
+        const extractedLenders = Array.from(uniqueLendersMap, ([id, name]) => ({ id, name }));
+        setLenders(extractedLenders);
+        
+        if (extractedLenders.length > 0 && (!activeLenderId || !extractedLenders.some(l => l.id === activeLenderId))) {
+          setActiveLenderId(extractedLenders[0].id);
+        }
+      } else if (user?.role !== 'Super Admin' && !activeLenderId) {
+        // Safe fallback for normal admins if state was empty
+        setActiveLenderId(user?.lender_id);
+      }
+
     } catch (error) {
-      console.error('Failed to load transfer data:', error);
+      console.error('Failed to load borrowers for transfer:', error);
     } finally {
-      setIsLoading(false);
+      setIsLoadingBorrowers(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    fetchBorrowers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  // 2. Strict Tenant Sync: Fetch Branches & Officers whenever Active Institution changes
+  useEffect(() => {
+    const fetchTenantDependencies = async () => {
+      if (!activeLenderId) return;
+      
+      setIsLoadingTenantData(true);
+      try {
+        const [branchesRes, usersRes] = await Promise.all([
+          api.get(`/branches?lender_id=${activeLenderId}`).catch(() => ({ data: [] })),
+          api.get(`/users?lender_id=${activeLenderId}`).catch(() => ({ data: [] }))
+        ]);
+        
+        setBranches(branchesRes.data || []);
+
+        const staff = (usersRes.data || []).filter((u: any) => 
+          u.role?.name === 'Loan Officer' || 
+          u.role?.name === 'Branch Manager' || 
+          u.role_id === 4 || 
+          u.role_id === 3
+        );
+        setOfficers(staff.length > 0 ? staff : usersRes.data);
+
+      } catch (error) {
+        console.error('Failed to load tenant dependencies:', error);
+      } finally {
+        setIsLoadingTenantData(false);
+      }
+    };
+
+    fetchTenantDependencies();
+  }, [activeLenderId]);
+
+  // --- ACTIONS ---
   const openTransferModal = (borrower: any) => {
     setSelectedBorrower(borrower);
-    setTargetBranchId('');
+    setTargetBranchId(borrower.branch_id || '');
+    setTargetOfficerId(borrower.user_id || '');
     setErrorMsg('');
     setIsModalOpen(true);
   };
@@ -63,10 +140,11 @@ export const CustomerTransferPage = () => {
 
     try {
       await api.patch(`/borrowers/${selectedBorrower.id}/transfer`, {
-        target_branch_id: targetBranchId
+        target_branch_id: targetBranchId,
+        target_officer_id: targetOfficerId
       });
       setIsModalOpen(false);
-      loadData(); // Refresh the grid to show new branch assignments
+      await fetchBorrowers(); // Refresh the grid
     } catch (error: any) {
       setErrorMsg(error.response?.data?.message || 'Failed to transfer customer.');
     } finally {
@@ -74,9 +152,19 @@ export const CustomerTransferPage = () => {
     }
   };
 
-  const filteredBorrowers = borrowers.filter(b => 
-    `${b.first_name} ${b.last_name} ${b.national_id}`.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // --- STRICT FRONTEND FILTERING ---
+  const filteredBorrowers = rawBorrowers.filter(b => {
+    // 1. Enforce Tenant Isolation
+    const matchesLender = b.lender_id === activeLenderId;
+    
+    // 2. Apply Text Search
+    const searchStr = `${b.first_name} ${b.last_name} ${b.national_id}`.toLowerCase();
+    const matchesSearch = searchStr.includes(searchQuery.toLowerCase());
+
+    return matchesLender && matchesSearch;
+  });
+
+  const availableOfficers = officers.filter(o => o.branch_id === targetBranchId || !o.branch_id);
 
   return (
     <div className="max-w-7xl mx-auto animate-fade-in pb-10">
@@ -85,32 +173,63 @@ export const CustomerTransferPage = () => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Inter-Branch Transfers</h1>
-          <p className="text-slate-500 font-medium mt-1">Reassign customer profiles and loan histories to different physical branches.</p>
+          <p className="text-slate-500 font-medium mt-1">Reassign customer profiles and loan histories to different physical branches or loan officers.</p>
         </div>
       </div>
 
-      {/* Main Table */}
+      {/* Main Table Container */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px]">
-        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
-          <div className="relative group w-full max-w-sm">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input type="text" placeholder="Search customers by name or ID..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 shadow-sm" />
+        
+        {/* Controls Bar */}
+        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-center gap-4">
+          
+          <div className="flex flex-col sm:flex-row w-full sm:w-auto gap-4">
+            {/* Super Admin Tenant Dropdown */}
+            {user?.role === 'Super Admin' && lenders.length > 0 && (
+              <div className="relative group w-full sm:w-64">
+                <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <select 
+                  value={activeLenderId} 
+                  onChange={(e) => setActiveLenderId(e.target.value)}
+                  className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 shadow-sm appearance-none"
+                >
+                  {lenders.map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Search Input */}
+            <div className="relative group w-full sm:w-72">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search customers by name or ID..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 shadow-sm" 
+              />
+            </div>
           </div>
-          <div className="flex items-center space-x-2 text-sm font-bold text-slate-600 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
-            <Users size={16} className="text-blue-500" /> <span>{borrowers.length} Customers Available</span>
+
+          <div className="flex items-center space-x-2 text-sm font-bold text-slate-600 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm whitespace-nowrap">
+            <Users size={16} className="text-blue-500" /> <span>{filteredBorrowers.length} Customers</span>
           </div>
+
         </div>
 
-        {isLoading ? (
+        {/* Data Grid */}
+        {isLoadingBorrowers || isLoadingTenantData ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400">
             <Loader2 size={40} className="animate-spin mb-4 text-slate-300" />
-            <p className="font-bold">Loading customer directory...</p>
+            <p className="font-bold">Syncing isolated tenant environment...</p>
           </div>
         ) : filteredBorrowers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center px-4">
             <User size={32} className="text-slate-300 mb-3" />
             <h3 className="text-lg font-bold text-slate-900">No customers found</h3>
-            <p className="text-slate-500 text-sm mt-1">Adjust your search to find a specific borrower.</p>
+            <p className="text-slate-500 text-sm mt-1">Adjust your search or select a different institution.</p>
           </div>
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
@@ -119,7 +238,7 @@ export const CustomerTransferPage = () => {
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-widest font-black">
                   <th className="p-5 pl-6">Customer Profile</th>
                   <th className="p-5">Contact Details</th>
-                  <th className="p-5">Current Branch Assignment</th>
+                  <th className="p-5">Current Branch & Officer</th>
                   <th className="p-5 text-center">KYC Status</th>
                   <th className="p-5 text-right pr-6">Administrative Action</th>
                 </tr>
@@ -143,11 +262,14 @@ export const CustomerTransferPage = () => {
                       <p className="text-[10px] text-slate-500 font-medium mt-0.5">{borrower.email || 'No email registered'}</p>
                     </td>
                     <td className="p-5">
-                      <div className="flex items-center space-x-2">
-                        <Building2 size={16} className="text-indigo-400" />
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{borrower.branch?.name || 'Unassigned'}</p>
-                          <p className="text-[10px] text-slate-500 font-medium mt-0.5"><MapPin size={10} className="inline mr-0.5"/> {borrower.branch?.location || '--'}</p>
+                      <div className="flex flex-col space-y-1">
+                        <div className="flex items-center text-sm font-bold text-slate-900">
+                          <Building2 size={14} className="text-indigo-400 mr-1.5 shrink-0" />
+                          <span className="truncate max-w-[150px]">{borrower.branch?.name || 'Unassigned'}</span>
+                        </div>
+                        <div className="flex items-center text-[10px] text-slate-500 font-medium ml-[1px]">
+                          <User size={12} className="mr-1.5 shrink-0" /> 
+                          <span className="truncate max-w-[150px]">{borrower.user ? `${borrower.user.first_name} ${borrower.user.last_name}` : 'Unassigned Officer'}</span>
                         </div>
                       </div>
                     </td>
@@ -191,10 +313,16 @@ export const CustomerTransferPage = () => {
                  </div>
                </div>
                <div>
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Branch</p>
-                 <div className="flex items-center space-x-3">
-                    <MapPin size={16} className="text-slate-500" />
-                    <span className="text-sm font-bold text-slate-900 bg-white px-2 py-1 rounded border border-slate-200">{selectedBorrower.branch?.name || 'Unassigned'}</span>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Assignment</p>
+                 <div className="flex flex-col space-y-2 mt-2">
+                    <div className="flex items-center space-x-3">
+                        <MapPin size={16} className="text-slate-500" />
+                        <span className="text-sm font-bold text-slate-900 bg-white px-2 py-1 rounded border border-slate-200">{selectedBorrower.branch?.name || 'Unassigned Branch'}</span>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                        <User size={16} className="text-slate-500" />
+                        <span className="text-sm font-bold text-slate-900 bg-white px-2 py-1 rounded border border-slate-200">{selectedBorrower.user ? `${selectedBorrower.user.first_name} ${selectedBorrower.user.last_name}` : 'Unassigned Officer'}</span>
+                    </div>
                  </div>
                </div>
             </div>
@@ -204,20 +332,36 @@ export const CustomerTransferPage = () => {
               
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1.5">Destination Branch *</label>
-                <div className="relative">
+                <div className="relative mb-5">
                   <Briefcase size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <select 
                     required 
                     value={targetBranchId} 
-                    onChange={e => setTargetBranchId(e.target.value)} 
+                    onChange={e => {
+                        setTargetBranchId(e.target.value);
+                        setTargetOfficerId(''); // Reset officer when branch changes
+                    }} 
                     className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-semibold text-slate-700 appearance-none"
                   >
                     <option value="" disabled>Select a target branch...</option>
-                    {branches
-                      .filter(b => b.id !== selectedBorrower.branch_id) // Hide their current branch from the list
-                      .map(b => (
+                    {branches.map(b => (
                         <option key={b.id} value={b.id}>{b.name} ({b.location})</option>
-                      ))}
+                    ))}
+                  </select>
+                </div>
+
+                <label className="text-xs font-bold text-slate-700 block mb-1.5">Destination Officer</label>
+                <div className="relative">
+                  <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select 
+                    value={targetOfficerId} 
+                    onChange={e => setTargetOfficerId(e.target.value)} 
+                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-semibold text-slate-700 appearance-none"
+                  >
+                    <option value="">-- Unassigned (Branch Pool) --</option>
+                    {availableOfficers.map(o => (
+                        <option key={o.id} value={o.id}>{o.first_name} {o.last_name}</option>
+                    ))}
                   </select>
                 </div>
               </div>

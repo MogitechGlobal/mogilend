@@ -35,18 +35,17 @@ export class BorrowerService {
                 lender_id: user.lender_id || data.lender_id,
                 branch_id: data.branch_id,
                 email: data.email,
-                user_id: user.id || data.user_id, // <-- ADDED: Link borrower to the Loan Officer
+                user_id: user.id || data.user_id,
             },
         });
     }
 
-    // <-- ADDED: Support for hierarchical filtering parameters
     async findByLender(lenderId: string, branchId?: string, userId?: string) {
         return this.prisma.borrower.findMany({
             where: { 
                 lender_id: lenderId,
-                ...(branchId && { branch_id: branchId }), // Filter by Branch if provided
-                ...(userId && { user_id: userId })        // Filter by Officer if provided
+                ...(branchId && { branch_id: branchId }), 
+                ...(userId && { user_id: userId })        
             },
             include: {
                 documents: { orderBy: { uploaded_at: 'desc' } },
@@ -131,7 +130,7 @@ export class BorrowerService {
                     phone_number: data.phone_number,
                     lender_id: lenderId,
                     branch_id: branchId,
-                    user_id: user.id || data.user_id, // <-- ADDED: Link borrower to the Loan Officer
+                    user_id: user.id || data.user_id,
                 },
             });
 
@@ -198,14 +197,17 @@ export class BorrowerService {
         return this.prisma.borrower.findMany({
             where: whereClause,
             include: {
-                branch: { select: { id: true, name: true, location: true } }
+                branch: { select: { id: true, name: true, location: true } },
+                user: { select: { id: true, first_name: true, last_name: true } },
+                lender: { select: { id: true, name: true } } // <--- ADD THIS TO INCLUDE EXACT LENDER NAME
             },
             orderBy: { created_at: 'desc' }
         });
     }
 
-    async transferCustomer(user: any, borrowerId: string, targetBranchId: string) {
-        if (!targetBranchId) {
+    // UPDATED: Now accepts full payload body to handle target_officer_id
+    async transferCustomer(user: any, borrowerId: string, data: { target_branch_id: string, target_officer_id?: string }) {
+        if (!data.target_branch_id) {
             throw new BadRequestException('A target branch must be selected.');
         }
 
@@ -223,19 +225,38 @@ export class BorrowerService {
             throw new ForbiddenException('You can only initiate transfers for customers currently in your branch.');
         }
 
-        const targetBranch = await this.prisma.branch.findUnique({ where: { id: targetBranchId } });
+        const targetBranch = await this.prisma.branch.findUnique({ where: { id: data.target_branch_id } });
         if (!targetBranch) throw new NotFoundException('Destination branch not found.');
         if (targetBranch.lender_id !== borrower.lender_id) {
             throw new BadRequestException('Cannot transfer customer to a branch belonging to a different institution.');
         }
 
-        if (borrower.branch_id === targetBranchId) {
-            throw new BadRequestException('Customer is already assigned to this branch.');
+        let finalOfficerId = borrower.user_id;
+
+        // Process Officer Transfer if included in the payload
+        if (data.target_officer_id !== undefined) {
+            if (data.target_officer_id === '') {
+                finalOfficerId = null; // Unassign officer
+            } else {
+                const targetOfficer = await this.prisma.user.findUnique({ where: { id: data.target_officer_id } });
+                if (!targetOfficer) throw new NotFoundException('Destination officer not found.');
+                if (targetOfficer.lender_id !== borrower.lender_id) {
+                    throw new BadRequestException('Officer belongs to a different institution.');
+                }
+                finalOfficerId = targetOfficer.id;
+            }
+        }
+
+        if (borrower.branch_id === data.target_branch_id && borrower.user_id === finalOfficerId) {
+            throw new BadRequestException('Customer is already assigned to this branch and officer.');
         }
 
         return this.prisma.borrower.update({
             where: { id: borrowerId },
-            data: { branch_id: targetBranchId }
+            data: { 
+                branch_id: data.target_branch_id,
+                user_id: finalOfficerId
+            }
         });
     }
 
@@ -293,8 +314,6 @@ export class BorrowerService {
             }
         });
     }
-
-    // --- NEXT OF KIN & GUARANTOR MANAGEMENT ---
 
     async deleteNextOfKin(borrowerId: string, user: any) {
         const borrower = await this.prisma.borrower.findUnique({ where: { id: borrowerId } });

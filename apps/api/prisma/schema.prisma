@@ -24,6 +24,8 @@ model User {
   role_id       Int
   email         String    @unique
   password_hash String
+  requires_password_change Boolean   @default(true)
+  invite_expires_at        DateTime?
   phone         String?
   is_active     Boolean   @default(true)
   mfa_enabled   Boolean   @default(false)
