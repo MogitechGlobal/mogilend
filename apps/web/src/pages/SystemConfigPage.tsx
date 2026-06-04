@@ -4,7 +4,7 @@ import useAuthStore from '../store/authStore';
 import {
   Building2, Plus, Mail, Phone, FileText,
   MapPin, Loader2, CheckCircle2, ShieldAlert,
-  Server, Search, ShieldCheck, Edit, Trash2, Ban, Eye, X, Activity, Users, CreditCard, LogIn
+  Server, Search, ShieldCheck, Edit, Trash2, Ban, Eye, X, Activity, Users, CreditCard, LogIn, RefreshCw, Clock
 } from 'lucide-react';
 
 export const SystemConfigPage = () => {
@@ -98,6 +98,7 @@ export const SystemConfigPage = () => {
     }
   };
 
+  // --- PRESERVED: Impersonate Logic ---
   const handleImpersonate = async (lender: any) => {
     if (!window.confirm(`Are you sure you want to log in as ${lender.name}? \n\nYou will temporarily leave your Super Admin dashboard. To return, you will need to sign out and log back in.`)) return;
 
@@ -112,6 +113,18 @@ export const SystemConfigPage = () => {
       window.location.href = '/';
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to impersonate tenant. Make sure they have an active Admin account.');
+    }
+  };
+
+  // --- NEW: Resend Invite Logic ---
+  const handleResendInvite = async (id: string) => {
+    if (!window.confirm("Are you sure you want to generate a new password and resend the invite email to this institution's root administrator?")) return;
+    try {
+      await api.post(`/lenders/${id}/resend-invite`);
+      alert('A new invite has been successfully sent to the institution.');
+      loadLenders();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to resend invite.');
     }
   };
 
@@ -205,56 +218,96 @@ export const SystemConfigPage = () => {
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-widest font-black">
                   <th className="p-5 pl-6">Institution Details</th>
-                  <th className="p-5">Compliance (CR12 / PIN)</th>
+                  <th className="p-5">Root Admin Status</th>
+                  <th className="p-5">CR12/KRA PIN</th>
                   <th className="p-5 text-center">Status</th>
-                  <th className="p-5 text-right">Joined Date</th>
                   <th className="p-5 text-right pr-6">Administrative Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredLenders.map((lender) => (
-                  <tr key={lender.id} className="hover:bg-slate-50/50 transition-colors group">
-                    <td className="p-5 pl-6">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm uppercase shadow-sm shrink-0">
-                          {lender.name.substring(0, 2)}
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900 text-sm">{lender.name}</p>
-                          <div className="flex items-center space-x-2 mt-0.5 text-[10px] font-medium text-slate-500">
-                            <span className="flex items-center"><Mail size={10} className="mr-1" /> {lender.email}</span>
-                            <span>•</span>
-                            <span className="flex items-center"><Phone size={10} className="mr-1" /> {lender.phone}</span>
+                {filteredLenders.map((lender) => {
+                  
+                  // Safely determine invite status for the root admin
+                  const rootUser = lender.users?.[0];
+                  const isInviteExpired = rootUser?.invite_expires_at && new Date(rootUser.invite_expires_at) < new Date();
+                  const requiresPasswordChange = rootUser?.requires_password_change;
+
+                  return (
+                    <tr key={lender.id} className="hover:bg-slate-50/50 transition-colors group">
+                      <td className="p-5 pl-6">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm uppercase shadow-sm shrink-0">
+                            {lender.name.substring(0, 2)}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm">{lender.name}</p>
+                            <div className="flex items-center space-x-2 mt-0.5 text-[10px] font-medium text-slate-500">
+                              <span className="flex items-center"><Mail size={10} className="mr-1" /> {lender.email}</span>
+                              <span>•</span>
+                              <span className="flex items-center"><Phone size={10} className="mr-1" /> {lender.phone}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="p-5">
-                      <p className="text-xs font-mono font-bold text-slate-700">{lender.registration_number || 'Unverified'}</p>
-                      <p className="text-[10px] font-mono text-slate-400 mt-0.5 uppercase">PIN: {lender.tax_pin || 'Pending'}</p>
-                    </td>
-                    <td className="p-5 text-center">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${lender.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : lender.status === 'SUSPENDED' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}`}>
-                        {lender.status === 'ACTIVE' ? <ShieldCheck size={12} className="mr-1" /> : lender.status === 'SUSPENDED' ? <Ban size={12} className="mr-1" /> : <Activity size={12} className="mr-1" />}
-                        {lender.status}
-                      </span>
-                    </td>
-                    <td className="p-5 text-right text-sm font-medium text-slate-500">
-                      {new Date(lender.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </td>
-                    <td className="p-5 text-right pr-6">
-                      <div className="flex items-center justify-end space-x-2">
-                        <button onClick={() => handleImpersonate(lender)} title="Login as Tenant" className="p-1.5 text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white rounded-lg transition-colors outline-none"><LogIn size={16} /></button>
-                        <button onClick={() => openDetails(lender)} title="System Overview" className="p-1.5 text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors outline-none"><Eye size={16} /></button>
-                        <button onClick={() => openEdit(lender)} title="Edit Institution" className="p-1.5 text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-600 hover:text-white rounded-lg transition-colors outline-none"><Edit size={16} /></button>
-                        <button onClick={() => handleToggleStatus(lender.id, lender.status)} title={lender.status === 'ACTIVE' ? "Suspend Tenant" : "Reactivate Tenant"} className={`p-1.5 rounded-lg border transition-colors outline-none ${lender.status === 'ACTIVE' ? 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-500 hover:text-white' : 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-500 hover:text-white'}`}>
-                          {lender.status === 'ACTIVE' ? <Ban size={16} /> : <CheckCircle2 size={16} />}
-                        </button>
-                        <button onClick={() => handleDelete(lender.id)} title="Purge Tenant" className="p-1.5 text-red-600 bg-red-50 border border-red-200 hover:bg-red-600 hover:text-white rounded-lg transition-colors outline-none"><Trash2 size={16} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+
+                      <td className="p-5">
+                        <div className="flex items-center text-sm font-semibold text-slate-700 mb-1.5">
+                          <ShieldCheck size={14} className="mr-2 text-emerald-500" /> {rootUser?.email || lender.email}
+                        </div>
+                        
+                        {/* Invite Status Badge */}
+                        {requiresPasswordChange ? (
+                            isInviteExpired ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border bg-red-50 text-red-700 border-red-200" title="Temporary password expired">
+                                    <Clock size={10} className="mr-1 -mt-0.5" /> Invite Expired
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border bg-blue-50 text-blue-700 border-blue-200" title="User needs to log in and set their own password">
+                                    <Mail size={10} className="mr-1 -mt-0.5" /> Pending Setup
+                                </span>
+                            )
+                        ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                <CheckCircle2 size={10} className="mr-1 -mt-0.5" /> Account Active
+                            </span>
+                        )}
+                      </td>
+
+                      <td className="p-5">
+                        <p className="text-xs font-mono font-bold text-slate-700">{lender.registration_number || 'Unverified'}</p>
+                        <p className="text-[10px] font-mono text-slate-400 mt-0.5 uppercase">PIN: {lender.tax_pin || 'Pending'}</p>
+                      </td>
+
+                      <td className="p-5 text-center">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${lender.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : lender.status === 'SUSPENDED' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}`}>
+                          {lender.status === 'ACTIVE' ? <ShieldCheck size={12} className="mr-1" /> : lender.status === 'SUSPENDED' ? <Ban size={12} className="mr-1" /> : <Activity size={12} className="mr-1" />}
+                          {lender.status}
+                        </span>
+                      </td>
+
+                      <td className="p-5 text-right pr-6">
+                        <div className="flex items-center justify-end space-x-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                          {requiresPasswordChange && (
+                              <button 
+                                  onClick={() => handleResendInvite(lender.id)} 
+                                  title="Resend Invite to Root Admin"
+                                  className="p-1.5 text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-600 hover:text-white rounded-lg transition-colors outline-none"
+                              >
+                                  <RefreshCw size={16} />
+                              </button>
+                          )}
+                          <button onClick={() => handleImpersonate(lender)} title="Login as Tenant" className="p-1.5 text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white rounded-lg transition-colors outline-none"><LogIn size={16} /></button>
+                          <button onClick={() => openDetails(lender)} title="System Overview" className="p-1.5 text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors outline-none"><Eye size={16} /></button>
+                          <button onClick={() => openEdit(lender)} title="Edit Institution" className="p-1.5 text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-600 hover:text-white rounded-lg transition-colors outline-none"><Edit size={16} /></button>
+                          <button onClick={() => handleToggleStatus(lender.id, lender.status)} title={lender.status === 'ACTIVE' ? "Suspend Tenant" : "Reactivate Tenant"} className={`p-1.5 rounded-lg border transition-colors outline-none ${lender.status === 'ACTIVE' ? 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-500 hover:text-white' : 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-500 hover:text-white'}`}>
+                            {lender.status === 'ACTIVE' ? <Ban size={16} /> : <CheckCircle2 size={16} />}
+                          </button>
+                          <button onClick={() => handleDelete(lender.id)} title="Purge Tenant" className="p-1.5 text-red-600 bg-red-50 border border-red-200 hover:bg-red-600 hover:text-white rounded-lg transition-colors outline-none"><Trash2 size={16} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -295,18 +348,13 @@ export const SystemConfigPage = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center">
                     <MapPin size={20} className="mx-auto text-blue-500 mb-2" />
-                    <h5 className="text-2xl font-black text-slate-900">{selectedLender.branches?.length || 0}</h5>
+                    <h5 className="text-2xl font-black text-slate-900">{selectedLender._count?.branches || 0}</h5>
                     <p className="text-[10px] font-bold uppercase text-slate-500">Active Branches</p>
                   </div>
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center">
                     <Users size={20} className="mx-auto text-indigo-500 mb-2" />
-                    <h5 className="text-2xl font-black text-slate-900">--</h5>
-                    <p className="text-[10px] font-bold uppercase text-slate-500">Staff Members</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center col-span-2">
-                    <CreditCard size={20} className="mx-auto text-emerald-500 mb-2" />
-                    <h5 className="text-2xl font-black text-slate-900">--</h5>
-                    <p className="text-[10px] font-bold uppercase text-slate-500">Total Capital Processed (KES)</p>
+                    <h5 className="text-2xl font-black text-slate-900">{selectedLender._count?.borrowers || 0}</h5>
+                    <p className="text-[10px] font-bold uppercase text-slate-500">Customers</p>
                   </div>
                 </div>
               </div>
@@ -392,7 +440,7 @@ export const SystemConfigPage = () => {
         </div>
       )}
 
-      {/* --- ONBOARDING MODAL (Retained) --- */}
+      {/* --- ONBOARDING MODAL --- */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setIsModalOpen(false)}></div>

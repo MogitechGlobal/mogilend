@@ -5,11 +5,11 @@ import { PrismaService } from '../prisma/prisma.service';
 export class TransactionService {
   constructor(private prisma: PrismaService) {}
 
-  // --- THIS WAS MISSING: Fetch transactions with related Loan and Borrower info ---
   async findAll(lenderId: string, type?: string) {
     if (!lenderId) return [];
 
-    return this.prisma.transaction.findMany({
+    // 1. Fetch actual payment transactions
+    const transactions = await this.prisma.transaction.findMany({
       where: {
         ...(type && { type }),
         loan: { lender_id: lenderId } 
@@ -18,9 +18,44 @@ export class TransactionService {
         loan: {
           include: { borrower: true } 
         }
-      },
-      orderBy: { transaction_date: 'desc' }
+      }
     });
+
+    let allRecords: any[] = [...transactions];
+
+    // 2. Fetch Disbursed Loans and map them seamlessly into "Transaction" records
+    if (!type || type === 'DISBURSEMENT') {
+        const disbursedLoans = await this.prisma.loan.findMany({
+            where: {
+                lender_id: lenderId,
+                status: { in: ['DISBURSED', 'COMPLETED', 'DEFAULTED'] }
+            },
+            include: { borrower: true }
+        });
+
+        const mappedDisbursements = disbursedLoans.map(loan => ({
+            id: `disb-${loan.id}`,
+            loan_id: loan.id,
+            amount: loan.principal_amount, // Map principal to transaction amount
+            type: 'DISBURSEMENT',
+            transaction_date: loan.disbursed_at || loan.created_at,
+            created_at: loan.disbursed_at || loan.created_at,
+            reference_code: `DISB-${loan.id.substring(0, 6).toUpperCase()}`,
+            description: 'Principal Disbursement',
+            loan: loan // Attach the full loan object so frontend hierarchy mapping works
+        }));
+
+        allRecords = [...allRecords, ...mappedDisbursements];
+    }
+
+    // 3. Sort everything chronologically (newest first)
+    allRecords.sort((a, b) => {
+        const dateA = new Date(a.transaction_date || a.created_at).getTime();
+        const dateB = new Date(b.transaction_date || b.created_at).getTime();
+        return dateB - dateA;
+    });
+
+    return allRecords;
   }
 
   async recordRepayment(user: any, data: any) {
@@ -36,49 +71,41 @@ export class TransactionService {
     }
 
     if (loan.status !== 'DISBURSED' && loan.status !== 'DEFAULTED') {
-      throw new BadRequestException(`Cannot record repayment for a loan with status: ${loan.status}`);
+      throw new BadRequestException('Can only record payments for active or defaulted loans.');
     }
 
-    const repaymentAmount = parseFloat(data.amount);
-    if (repaymentAmount <= 0) {
-      throw new BadRequestException('Repayment amount must be greater than zero.');
+    const repaymentAmount = Number(data.amount);
+    if (isNaN(repaymentAmount) || repaymentAmount <= 0) {
+      throw new BadRequestException('Invalid repayment amount.');
     }
 
-    if (repaymentAmount > loan.outstanding_balance) {
-      throw new BadRequestException(`Repayment of KES ${repaymentAmount} exceeds the outstanding balance of KES ${loan.outstanding_balance}.`);
-    }
-
+    // ACID Transaction for financial integrity
     return this.prisma.$transaction(async (tx) => {
-      const transactionRecord = await tx.transaction.create({
-        data: {
-          loan_id: loan.id,
-          reference_code: data.reference_code, 
-          amount: repaymentAmount,
-          type: 'REPAYMENT',
-          description: data.description || 'Manual Repayment',
-          transaction_date: data.transaction_date ? new Date(data.transaction_date) : new Date(), 
-        },
-      });
-
       const newBalance = loan.outstanding_balance - repaymentAmount;
-      const newStatus = newBalance <= 0 ? 'COMPLETED' : loan.status;
 
       const updatedLoan = await tx.loan.update({
         where: { id: loan.id },
         data: {
-          outstanding_balance: newBalance,
-          status: newStatus,
+          outstanding_balance: Math.max(0, newBalance),
+          status: newBalance <= 0 ? 'COMPLETED' : loan.status,
         },
       });
 
-      return {
-        receipt: transactionRecord,
-        loan_summary: updatedLoan,
-      };
+      const transaction = await tx.transaction.create({
+        data: {
+          loan_id: loan.id,
+          amount: repaymentAmount,
+          type: 'REPAYMENT',
+          reference_code: data.reference_code,
+          description: data.description || 'Standard Repayment',
+          transaction_date: data.transaction_date ? new Date(data.transaction_date) : new Date(),
+        },
+      });
+
+      return { transaction, updatedLoan };
     });
   }
 
-  // --- NEW: Delete Transaction Logic ---
   async deleteTransaction(user: any, transactionId: string) {
     const lenderId = user.role === 'Super Admin' ? undefined : user.lender_id;
 
@@ -98,15 +125,12 @@ export class TransactionService {
     // 3. ACID Transaction to delete receipt AND reverse the balance
     return this.prisma.$transaction(async (tx) => {
       
-      // Calculate the reversed balance
       const newBalance = transaction.loan.outstanding_balance + transaction.amount;
       
-      // If the loan was previously marked COMPLETED, but we are deleting a payment, it goes back to DISBURSED
       const newStatus = (newBalance > 0 && transaction.loan.status === 'COMPLETED') 
         ? 'DISBURSED' 
         : transaction.loan.status;
 
-      // Reverse the loan balance
       await tx.loan.update({
         where: { id: transaction.loan_id },
         data: {
@@ -115,7 +139,6 @@ export class TransactionService {
         }
       });
 
-      // Permanently delete the transaction log
       return tx.transaction.delete({
         where: { id: transactionId }
       });

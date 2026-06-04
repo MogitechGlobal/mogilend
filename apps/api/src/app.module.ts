@@ -14,6 +14,7 @@ import { InterestRatesModule } from './interest-rates/interest-rates.module';
 import { UserModule } from './user/user.module';
 import { AuditModule } from './audit/audit.module';
 import { AuditInterceptor } from './audit/audit.interceptor';
+import { LeadModule } from './lead/lead.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AuditInterceptor } from './audit/audit.interceptor';
     BranchModule,
     InterestRatesModule,
     AuditModule,
+    LeadModule,
 
   ],
   controllers: [AppController],

@@ -25,9 +25,22 @@ export class BranchService {
     return this.prisma.branch.findMany({
       where: { lender_id: lenderId },
       include: { 
+        // THIS IS THE FIX: Fetch the institution name alongside the branch
+        lender: { select: { name: true } }, 
         _count: { 
           select: { users: true, borrowers: true } 
-        } 
+        },
+        users: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+            phone: true,
+            is_active: true,
+            role: { select: { name: true } }
+          }
+        }
       },
       orderBy: { created_at: 'asc' }
     });
@@ -61,7 +74,7 @@ export class BranchService {
 
     // Safety constraint: Prevent deleting branches that have active staff or borrowers
     if (branch._count.users > 0 || branch._count.borrowers > 0) {
-      throw new BadRequestException('Cannot delete branch. Reassign all staff and borrowers to another branch first.');
+      throw new BadRequestException('Cannot delete a branch that has assigned staff or active customers. Please reassign them first.');
     }
 
     return this.prisma.branch.delete({ where: { id: branchId } });

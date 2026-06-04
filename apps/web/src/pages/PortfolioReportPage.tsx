@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../lib/api';
 import useAuthStore from '../store/authStore';
 import { 
   Briefcase, AlertTriangle, TrendingUp, Download, 
   Search, Filter, Loader2, PieChart as PieChartIcon, 
-  BarChart3, FileText, ArrowUpRight
+  BarChart3, FileText, ArrowUpRight, MapPin, User, Calendar
 } from 'lucide-react';
 import { 
   PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, 
@@ -14,20 +14,44 @@ import {
 export const PortfolioReportPage = () => {
   const user = useAuthStore((state: any) => state.user);
   
+  // --- RAW DATA STATE ---
   const [loans, setLoans] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [officers, setOfficers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // --- FILTER STATE ---
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [filterBranch, setFilterBranch] = useState('ALL');
+  const [filterOfficer, setFilterOfficer] = useState('ALL');
+  const [filterPeriod, setFilterPeriod] = useState('THIS_MONTH');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   useEffect(() => {
-    const fetchPortfolio = async () => {
-      if (!user?.lender_id) return;
+    const fetchPortfolioData = async () => {
+      if (!user?.lender_id && user?.role !== 'Super Admin') return;
       
       setIsLoading(true);
       try {
-        const response = await api.get(`/loans?lender_id=${user.lender_id}`);
-        const data = Array.isArray(response.data) ? response.data : (response.data?.data || []);
-        setLoans(data);
+        const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
+        const queryParams = `?lender_id=${activeLenderId}`;
+
+        const [loansRes, branchesRes, usersRes] = await Promise.all([
+            api.get(`/loans${queryParams}`),
+            api.get(`/branches${queryParams}`).catch(() => ({ data: [] })),
+            api.get(`/users${queryParams}`).catch(() => ({ data: [] }))
+        ]);
+
+        setLoans(Array.isArray(loansRes.data) ? loansRes.data : (loansRes.data?.data || []));
+        setBranches(branchesRes.data || []);
+        
+        const staff = (usersRes.data || []).filter((u: any) => 
+            ['Loan Officer', 'Branch Manager'].includes(u.role?.name) || u.role_id === 4 || u.role_id === 3
+        );
+        setOfficers(staff.length > 0 ? staff : usersRes.data);
+
       } catch (error) {
         console.error('Failed to fetch portfolio data:', error);
       } finally {
@@ -35,47 +59,128 @@ export const PortfolioReportPage = () => {
       }
     };
 
-    fetchPortfolio();
+    fetchPortfolioData();
   }, [user]);
 
   // --- DATA AGGREGATION ENGINE ---
-  const activeLoans = loans.filter(l => l.status === 'DISBURSED' || l.status === 'DEFAULTED');
-  const defaultedLoans = loans.filter(l => l.status === 'DEFAULTED');
+  const { kpis, pieChartData, barChartData, baseFilteredLoans } = useMemo(() => {
+    // 1. Resolve Date Range
+    const now = new Date();
+    let start = new Date(0); // Epoch
+    let end = new Date();
 
-  const totalPortfolioValue = activeLoans.reduce((sum, l) => sum + (Number(l.outstanding_balance) || 0), 0);
-  const totalPrincipalIssued = loans.filter(l => ['DISBURSED', 'COMPLETED', 'DEFAULTED'].includes(l.status)).reduce((sum, l) => sum + (Number(l.principal_amount) || 0), 0);
-  const parValue = defaultedLoans.reduce((sum, l) => sum + (Number(l.outstanding_balance) || 0), 0);
-  const parPercentage = totalPortfolioValue > 0 ? (parValue / totalPortfolioValue) * 100 : 0;
-  
-  const averageLoanSize = activeLoans.length > 0 ? totalPortfolioValue / activeLoans.length : 0;
+    if (filterPeriod === 'TODAY') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        end = new Date(start);
+        end.setHours(23, 59, 59, 999);
+    } else if (filterPeriod === 'YESTERDAY') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        end = new Date(start);
+        end.setHours(23, 59, 59, 999);
+    } else if (filterPeriod === 'THIS_WEEK') {
+        start = new Date(now);
+        start.setDate(now.getDate() - now.getDay());
+        start.setHours(0, 0, 0, 0);
+    } else if (filterPeriod === 'THIS_MONTH') {
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (filterPeriod === 'THIS_YEAR') {
+        start = new Date(now.getFullYear(), 0, 1);
+    } else if (filterPeriod === 'CUSTOM' && customStart && customEnd) {
+        start = new Date(customStart);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(customEnd);
+        end.setHours(23, 59, 59, 999);
+    }
 
-  // Product Distribution for Pie Chart
-  const productDistribution = activeLoans.reduce((acc: any, loan) => {
-    const productName = loan.loan_product?.name || 'Unknown Product';
-    acc[productName] = (acc[productName] || 0) + (Number(loan.outstanding_balance) || 0);
-    return acc;
-  }, {});
+    // 2. Filter Loans by Hierarchy & Date
+    const filtered = loans.filter(l => {
+        const bMatch = filterBranch === 'ALL' || l.borrower?.branch_id === filterBranch;
+        const oMatch = filterOfficer === 'ALL' || l.borrower?.user_id === filterOfficer;
+        if (!bMatch || !oMatch) return false;
 
-  const pieChartData = Object.keys(productDistribution).map((key, index) => ({
-    name: key,
-    value: productDistribution[key],
-    // Generate distinct colors based on index
-    color: ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 5] 
-  })).sort((a, b) => b.value - a.value);
+        const d = new Date(l.disbursed_at || l.created_at);
+        return d >= start && d <= end;
+    });
 
-  // Status Distribution for Bar Chart
-  const statusCounts = loans.reduce((acc: any, loan) => {
-    acc[loan.status] = (acc[loan.status] || 0) + 1;
-    return acc;
-  }, {});
+    // 3. Compute Advanced KPIs
+    const activeLoans = filtered.filter(l => l.status === 'DISBURSED' || l.status === 'DEFAULTED');
+    const defaultedLoans = filtered.filter(l => l.status === 'DEFAULTED');
 
-  const barChartData = [
-    { name: 'Pending', count: statusCounts['PENDING'] || 0, fill: '#64748B' },
-    { name: 'Disbursed', count: statusCounts['DISBURSED'] || 0, fill: '#3B82F6' },
-    { name: 'Completed', count: statusCounts['COMPLETED'] || 0, fill: '#10B981' },
-    { name: 'Defaulted', count: statusCounts['DEFAULTED'] || 0, fill: '#EF4444' },
-    { name: 'Rejected', count: statusCounts['REJECTED'] || 0, fill: '#0F172A' },
-  ];
+    const totalPortfolioValue = activeLoans.reduce((sum, l) => sum + (Number(l.outstanding_balance) || 0), 0);
+    const totalPrincipalIssued = filtered.filter(l => ['DISBURSED', 'COMPLETED', 'DEFAULTED'].includes(l.status)).reduce((sum, l) => sum + (Number(l.principal_amount) || 0), 0);
+    const parValue = defaultedLoans.reduce((sum, l) => sum + (Number(l.outstanding_balance) || 0), 0);
+    const parPercentage = totalPortfolioValue > 0 ? (parValue / totalPortfolioValue) * 100 : 0;
+    const averageLoanSize = activeLoans.length > 0 ? totalPortfolioValue / activeLoans.length : 0;
+
+    // 4. Compute Pie Chart (Product Distribution)
+    const productDistribution = activeLoans.reduce((acc: any, loan) => {
+        const productName = loan.loan_product?.name || 'Unknown Product';
+        acc[productName] = (acc[productName] || 0) + (Number(loan.outstanding_balance) || 0);
+        return acc;
+    }, {});
+
+    const pieData = Object.keys(productDistribution).map((key, index) => ({
+        name: key,
+        value: productDistribution[key],
+        color: ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 5] 
+    })).sort((a, b) => b.value - a.value);
+
+    // 5. Compute Bar Chart (Status Distribution)
+    const statusCounts = filtered.reduce((acc: any, loan) => {
+        acc[loan.status] = (acc[loan.status] || 0) + 1;
+        return acc;
+    }, {});
+
+    const barData = [
+        { name: 'Pending', count: statusCounts['PENDING'] || 0, fill: '#64748B' },
+        { name: 'Disbursed', count: statusCounts['DISBURSED'] || 0, fill: '#3B82F6' },
+        { name: 'Completed', count: statusCounts['COMPLETED'] || 0, fill: '#10B981' },
+        { name: 'Defaulted', count: statusCounts['DEFAULTED'] || 0, fill: '#EF4444' },
+        { name: 'Rejected', count: statusCounts['REJECTED'] || 0, fill: '#0F172A' },
+    ];
+
+    return { 
+        baseFilteredLoans: filtered,
+        kpis: { totalPortfolioValue, totalPrincipalIssued, parValue, parPercentage, averageLoanSize, activeCount: activeLoans.length },
+        pieChartData: pieData,
+        barChartData: barData
+    };
+  }, [loans, filterBranch, filterOfficer, filterPeriod, customStart, customEnd]);
+
+  // --- SECONDARY TABLE FILTERING ---
+  const filteredTableData = baseFilteredLoans.filter((loan) => {
+    const searchString = `${loan.borrower?.first_name} ${loan.borrower?.last_name} ${loan.borrower?.national_id} ${loan.id}`.toLowerCase();
+    const matchesSearch = searchString.includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'ALL' || loan.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  // --- EXPORT FUNCTION ---
+  const handleExportReport = () => {
+    if (filteredTableData.length === 0) return;
+    
+    const headers = ['Facility ID', 'Customer Name', 'National ID', 'Product', 'Principal', 'Outstanding Balance', 'Status', 'Origination Date'];
+    const csvRows = filteredTableData.map(l => [
+        `#${l.id.substring(0,8)}`,
+        `${l.borrower?.first_name} ${l.borrower?.last_name}`,
+        l.borrower?.national_id || 'N/A',
+        l.loan_product?.name || 'Standard',
+        Number(l.principal_amount).toFixed(2),
+        Number(l.outstanding_balance).toFixed(2),
+        l.status,
+        new Date(l.disbursed_at || l.created_at).toLocaleDateString()
+    ]);
+    
+    const csvContent = [headers.join(','), ...csvRows.map(r => `"${r.join('","')}"`)].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Portfolio_Report_${filterPeriod}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // --- FORMATTERS ---
   const formatCurrency = (val: number) => {
@@ -85,13 +190,13 @@ export const PortfolioReportPage = () => {
   const formatCompact = (val: number) => {
     if (val >= 1000000) return `KES ${(val / 1000000).toFixed(2)}M`;
     if (val >= 1000) return `KES ${(val / 1000).toFixed(1)}K`;
-    return `KES ${val}`;
+    return `KES ${val.toLocaleString()}`;
   };
 
   const CustomPieTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl border border-slate-700/50 text-sm font-bold">
+        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl border border-slate-700/50 text-sm font-bold z-50 relative">
           <p className="text-slate-400 text-xs mb-1 uppercase tracking-widest">{payload[0].name}</p>
           <p>{formatCurrency(payload[0].value)}</p>
         </div>
@@ -100,13 +205,7 @@ export const PortfolioReportPage = () => {
     return null;
   };
 
-  // --- TABLE FILTERING ---
-  const filteredTableData = loans.filter((loan) => {
-    const searchString = `${loan.borrower?.first_name} ${loan.borrower?.last_name} ${loan.borrower?.national_id}`.toLowerCase();
-    const matchesSearch = searchString.includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'ALL' || loan.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const availableOfficers = officers.filter(o => filterBranch === 'ALL' ? true : o.branch_id === filterBranch);
 
   return (
     <div className="max-w-7xl mx-auto animate-fade-in pb-10">
@@ -117,40 +216,112 @@ export const PortfolioReportPage = () => {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Portfolio Analytics</h1>
           <p className="text-slate-500 font-medium mt-1">Deep-dive report into asset exposure and risk distribution.</p>
         </div>
-        <button className="flex items-center space-x-2 bg-slate-900 text-white font-bold px-5 py-2.5 rounded-xl hover:bg-slate-800 active:scale-95 transition-all shadow-md shadow-slate-900/20 outline-none">
+        <button 
+            onClick={handleExportReport}
+            disabled={filteredTableData.length === 0}
+            className="flex items-center space-x-2 bg-slate-900 text-white font-bold px-5 py-2.5 rounded-xl hover:bg-slate-800 active:scale-95 transition-all shadow-md shadow-slate-900/20 outline-none disabled:opacity-50"
+        >
           <Download size={18} />
           <span>Export Full Report</span>
         </button>
       </div>
 
+      {/* Advanced Filters */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row gap-4 mb-8">
+          <div className="flex items-center text-slate-400 mr-2 shrink-0">
+              <Filter size={18} className="mr-2" />
+              <span className="text-xs font-black uppercase tracking-widest">Filters</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1">
+              <div className="relative">
+                  <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select
+                      value={filterBranch}
+                      onChange={(e) => { setFilterBranch(e.target.value); setFilterOfficer('ALL'); }}
+                      className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer"
+                  >
+                      <option value="ALL">All Branches</option>
+                      {branches.map(b => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                  </select>
+              </div>
+
+              <div className="relative">
+                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select
+                      value={filterOfficer}
+                      onChange={(e) => setFilterOfficer(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer"
+                  >
+                      <option value="ALL">All Officers</option>
+                      {availableOfficers.map(o => (
+                          <option key={o.id} value={o.id}>{o.first_name} {o.last_name}</option>
+                      ))}
+                  </select>
+              </div>
+
+              <div className="relative">
+                  <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select
+                      value={filterPeriod}
+                      onChange={(e) => setFilterPeriod(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer"
+                  >
+                      <option value="ALL">All Time</option>
+                      <option value="TODAY">Today</option>
+                      <option value="YESTERDAY">Yesterday</option>
+                      <option value="THIS_WEEK">This Week</option>
+                      <option value="THIS_MONTH">This Month</option>
+                      <option value="THIS_YEAR">This Year</option>
+                      <option value="CUSTOM">Custom Range</option>
+                  </select>
+              </div>
+
+              {filterPeriod === 'CUSTOM' && (
+                  <div className="flex gap-2 animate-in fade-in zoom-in-95">
+                      <input 
+                          type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none"
+                      />
+                      <input 
+                          type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none"
+                      />
+                  </div>
+              )}
+          </div>
+      </div>
+
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10"><Briefcase size={64} className="text-blue-500" /></div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group hover:border-blue-300 transition-colors">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Briefcase size={64} className="text-blue-500" /></div>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Total Active Exposure</p>
-          <h3 className="text-3xl font-black text-blue-600 tracking-tight mb-2">{formatCompact(totalPortfolioValue)}</h3>
-          <p className="text-xs font-bold text-slate-400">Across {activeLoans.length} active facilities</p>
+          <h3 className="text-3xl font-black text-blue-600 tracking-tight mb-2">{formatCompact(kpis.totalPortfolioValue)}</h3>
+          <p className="text-xs font-bold text-slate-400">Across {kpis.activeCount} active facilities</p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10"><AlertTriangle size={64} className="text-red-500" /></div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group hover:border-red-300 transition-colors">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><AlertTriangle size={64} className="text-red-500" /></div>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Portfolio At Risk (PAR)</p>
-          <h3 className="text-3xl font-black text-red-500 tracking-tight mb-2">{parPercentage.toFixed(2)}%</h3>
-          <p className="text-xs font-bold text-slate-400">Value: {formatCompact(parValue)}</p>
+          <h3 className="text-3xl font-black text-red-500 tracking-tight mb-2">{kpis.parPercentage.toFixed(2)}%</h3>
+          <p className="text-xs font-bold text-slate-400">Value: {formatCompact(kpis.parValue)}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp size={64} className="text-emerald-500" /></div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group hover:border-emerald-300 transition-colors">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><TrendingUp size={64} className="text-emerald-500" /></div>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Avg. Loan Size</p>
-          <h3 className="text-3xl font-black text-slate-900 tracking-tight mb-2">{formatCompact(averageLoanSize)}</h3>
+          <h3 className="text-3xl font-black text-slate-900 tracking-tight mb-2">{formatCompact(kpis.averageLoanSize)}</h3>
           <p className="text-xs font-bold text-slate-400">Based on active portfolio</p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10"><ArrowUpRight size={64} className="text-indigo-500" /></div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><ArrowUpRight size={64} className="text-indigo-500" /></div>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Historical Principal</p>
-          <h3 className="text-3xl font-black text-slate-900 tracking-tight mb-2">{formatCompact(totalPrincipalIssued)}</h3>
-          <p className="text-xs font-bold text-slate-400">Total capital deployed to date</p>
+          <h3 className="text-3xl font-black text-slate-900 tracking-tight mb-2">{formatCompact(kpis.totalPrincipalIssued)}</h3>
+          <p className="text-xs font-bold text-slate-400">Total capital deployed in period</p>
         </div>
       </div>
 
@@ -192,7 +363,7 @@ export const PortfolioReportPage = () => {
                     <div key={item.name}>
                       <div className="flex justify-between items-center text-xs font-bold mb-1">
                         <div className="flex items-center text-slate-700"><span className="w-2.5 h-2.5 rounded-sm mr-2" style={{ backgroundColor: item.color }}></span>{item.name}</div>
-                        <span className="text-slate-900">{((item.value / totalPortfolioValue) * 100).toFixed(1)}%</span>
+                        <span className="text-slate-900">{((item.value / kpis.totalPortfolioValue) * 100).toFixed(1)}%</span>
                       </div>
                       <div className="text-[10px] text-slate-400 font-mono ml-4">{formatCurrency(item.value)}</div>
                     </div>
@@ -200,7 +371,7 @@ export const PortfolioReportPage = () => {
                 </div>
               </>
             ) : (
-               <div className="text-slate-400 font-medium text-sm">No active portfolio data.</div>
+               <div className="text-slate-400 font-medium text-sm">No active portfolio data in this period.</div>
             )}
           </div>
         </div>
@@ -328,7 +499,7 @@ export const PortfolioReportPage = () => {
                       </span>
                     </td>
                     <td className="p-4 text-right pr-6 text-sm font-medium text-slate-500">
-                      {new Date(loan.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric'})}
+                      {new Date(loan.disbursed_at || loan.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric'})}
                     </td>
                   </tr>
                 ))

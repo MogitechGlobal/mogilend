@@ -147,17 +147,19 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
           {/* Group 3: Loan Portfolio */}
           {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) && (
             <NavGroup title="Loan Portfolio" icon={Briefcase} menuKey="portfolio">
-              <NavLink path="active-loans" label="Active Facilities" icon={Briefcase} />
+              <NavLink path="active-loans" label="Active Loans" icon={Briefcase} />
             </NavGroup>
           )}
 
           <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-6">Growth & Analytics</p>
 
           {/* Group 4: Marketing */}
-          <NavGroup title="Marketing" icon={Megaphone} menuKey="marketing_group">
-            <NavLink path="marketing" label="Campaign Overview" icon={Megaphone} />
-            <NavLink path="marketing-leads" label="Lead Generation" icon={Target} />
-          </NavGroup>
+          {hasAccess(['Lender Admin', 'Branch Manager']) && (
+            <NavGroup title="Marketing" icon={Megaphone} menuKey="marketing_group">
+              <NavLink path="marketing" label="Campaign Overview" icon={Megaphone} />
+              <NavLink path="marketing-leads" label="Lead Generation" icon={Target} />
+            </NavGroup>
+          )}
 
           {/* Group 5: Reports */}
           {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) && (
@@ -181,7 +183,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
           {/* Group 7: System Settings */}
           {hasAccess(['Lender Admin', 'Branch Manager']) && (
             <NavGroup title="System Settings" icon={Settings} menuKey="system">
-              {hasAccess(['Lender Admin']) && <NavLink path="system-config" label="System Configuration" icon={Sliders} />}
+              {hasAccess(['Lender Admin']) && <NavLink path="system-config" label="Lender Management" icon={Sliders} />}
               <NavLink path="register-staff" label="User Management" icon={UserPlus} />
               {hasAccess(['Lender Admin']) && <NavLink path="branch-management" label="Branch Management" icon={UserPlus} />}
               {hasAccess(['Lender Admin']) && <NavLink path="audit-ledger" label="Audit Ledger" icon={FileClock} />}

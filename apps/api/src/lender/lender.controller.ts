@@ -12,8 +12,9 @@ export class LenderController {
 
   @Post()
   @Roles('Super Admin')
-  async createLender(@Body() createLenderDto: CreateLenderDto) {
-    return this.lenderService.onboardLender(createLenderDto);
+  async createLender(@NestRequest() req: any, @Body() createLenderDto: CreateLenderDto) {
+    // Pass req.user to service for Audit Logging
+    return this.lenderService.onboardLender(req.user, createLenderDto);
   }
 
   @Get()
@@ -25,20 +26,25 @@ export class LenderController {
   @Patch(':id')
   @Roles('Super Admin')
   async updateLender(@NestRequest() req: any, @Param('id') id: string, @Body() data: any) {
-    // Pass req.user to the service for Audit Logging
     return this.lenderService.updateLender(req.user, id, data);
   }
 
   @Patch(':id/toggle-status')
   @Roles('Super Admin')
-  async toggleLenderStatus(@NestRequest() req: any, @Param('id') id: string) {
-    // Pass req.user to the service for Audit Logging
+  async toggleStatus(@NestRequest() req: any, @Param('id') id: string) {
     return this.lenderService.toggleStatus(req.user, id);
+  }
+
+  // --- NEW ENDPOINT: Resend Invite ---
+  @Post(':id/resend-invite')
+  @Roles('Super Admin')
+  async resendInvite(@NestRequest() req: any, @Param('id') id: string) {
+    return this.lenderService.resendInvite(req.user, id);
   }
 
   @Delete(':id')
   @Roles('Super Admin')
-  async deleteLender(@Param('id') id: string) {
-    return this.lenderService.deleteLender(id);
+  async deleteLender(@NestRequest() req: any, @Param('id') id: string) {
+    return this.lenderService.deleteLender(req.user, id);
   }
 }

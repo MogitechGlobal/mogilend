@@ -40,6 +40,7 @@ model User {
   lender Lender? @relation(fields: [lender_id], references: [id])
   branch Branch? @relation(fields: [branch_id], references: [id])
   borrowers Borrower[]
+  leads Lead[]
 }
 
 model Lender {
@@ -60,6 +61,7 @@ model Lender {
   borrowers     Borrower[]
   loan_products LoanProduct[]
   loans         Loan[]
+  leads Lead[]
 
   audit_logs AuditLog[]
 }
@@ -76,6 +78,7 @@ model Branch {
   users     User[]
   // Future relations: Borrowers
   borrowers Borrower[]
+  leads Lead[]
 }
 
 model Borrower {
@@ -230,4 +233,29 @@ model Guarantor {
   created_at           DateTime @default(now())
 
   borrower             Borrower @relation(fields: [borrower_id], references: [id], onDelete: Cascade)
+}
+
+// --- ADD THIS NEW MODEL ---
+model Lead {
+  id            String   @id @default(uuid())
+  lender_id     String
+  branch_id     String?
+  assigned_to   String?  // Maps to User.id (Loan Officer)
+  
+  first_name    String
+  last_name     String
+  phone_number  String
+  email         String?
+  
+  source        String   @default("Website") // e.g., Facebook, Referral, Website, Walk-in, Field Agent
+  status        String   @default("NEW") // NEW, CONTACTED, QUALIFIED, CONVERTED, LOST
+  notes         String?
+  
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  // Relationships
+  lender        Lender   @relation(fields: [lender_id], references: [id], onDelete: Cascade)
+  branch        Branch?  @relation(fields: [branch_id], references: [id], onDelete: SetNull)
+  officer       User?    @relation(fields: [assigned_to], references: [id], onDelete: SetNull)
 }

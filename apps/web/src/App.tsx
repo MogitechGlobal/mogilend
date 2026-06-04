@@ -23,6 +23,8 @@ import { CustomerTransferPage } from './pages/CustomerTransferPage';
 import { CustomerEditsPage } from './pages/CustomerEditsPage';
 import { AuditLedgerPage } from './pages/AuditLedgerPage';
 import { ShieldAlert } from 'lucide-react';
+import { MarketingLeadsPage } from './pages/MarketingLeadsPage';
+import { MarketingOverviewPage } from './pages/MarketingOverviewPage';
 
 // Placeholder components for modules currently in development
 const Placeholder = ({ title }: { title: string }) => (
@@ -122,8 +124,8 @@ function App() {
       {currentPage === 'portfolio-report' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <PortfolioReportPage /> : <UnauthorizedAccess />)}
 
       {/* Marketing */}
-      {currentPage === 'marketing' && <Placeholder title="Marketing Overview" />}
-      {currentPage === 'marketing-leads' && <Placeholder title="Marketing Leads" />}
+      {currentPage === 'marketing' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <MarketingOverviewPage/> : <UnauthorizedAccess />)}
+      {currentPage === 'marketing-leads' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <MarketingLeadsPage /> : <UnauthorizedAccess />)}
 
       {/* Profile & Settings (Everyone) */}
       {currentPage === 'profile' && <ProfileSettings />}

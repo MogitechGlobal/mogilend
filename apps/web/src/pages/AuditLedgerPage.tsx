@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import useAuthStore from '../store/authStore';
 import { 
     Loader2, ShieldCheck, Search, UserCircle, 
     Clock, ShieldAlert, Activity, Database, 
     Filter, Download, Calendar, FileJson, X,
-    Terminal
+    Terminal, Globe, Building2
 } from 'lucide-react';
 
 export const AuditLedgerPage = () => {
@@ -13,13 +13,15 @@ export const AuditLedgerPage = () => {
     
     // Server State
     const [logs, setLogs] = useState<any[]>([]);
+    const [lenders, setLenders] = useState<{id: string, name: string}[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalLogs, setTotalLogs] = useState(0);
     
-    // Advanced Filters State
+    // Advanced Filters State (Now sent to Backend)
+    const [filterLender, setFilterLender] = useState<string>('ALL');
     const [filterRisk, setFilterRisk] = useState<'ALL' | 'HIGH_RISK' | 'STANDARD'>('ALL');
     const [dateFilter, setDateFilter] = useState('ALL');
     const [customStartDate, setCustomStartDate] = useState('');
@@ -28,11 +30,70 @@ export const AuditLedgerPage = () => {
     // Payload Modal State
     const [selectedLog, setSelectedLog] = useState<any>(null);
 
+    // Fetch Institutions (Super Admin Only)
+    useEffect(() => {
+        if (user?.role === 'Super Admin') {
+            api.get('/lenders')
+               .then(res => {
+                   setLenders(res.data.map((l: any) => ({ id: l.id, name: l.name })));
+               })
+               .catch(err => console.error("Failed to fetch lenders for filter:", err));
+        }
+    }, [user]);
+
+    // Calculate dates securely for the backend payload
+    const getCalculatedDateRange = () => {
+        const now = new Date();
+        let start = '';
+        let end = '';
+
+        const formatD = (d: Date) => d.toISOString().split('T')[0];
+
+        if (dateFilter === 'TODAY') {
+            start = formatD(now);
+            end = start;
+        } else if (dateFilter === 'YESTERDAY') {
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            start = formatD(yesterday);
+            end = start;
+        } else if (dateFilter === 'THIS_WEEK') {
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - now.getDay());
+            start = formatD(weekStart);
+            end = formatD(now);
+        } else if (dateFilter === 'THIS_MONTH') {
+            start = formatD(new Date(now.getFullYear(), now.getMonth(), 1));
+            end = formatD(now);
+        } else if (dateFilter === 'CUSTOM') {
+            start = customStartDate;
+            end = customEndDate;
+        }
+
+        return { start, end };
+    };
+
     useEffect(() => {
         const fetchLogs = async () => {
             setIsLoading(true);
             try {
-                const res = await api.get(`/audit/ledger?page=${page}&search=${searchQuery}`);
+                const { start, end } = getCalculatedDateRange();
+                
+                // Construct parameters
+                const params = new URLSearchParams({
+                    page: page.toString(),
+                    search: searchQuery,
+                    risk: filterRisk !== 'ALL' ? filterRisk : '',
+                    start: start,
+                    end: end
+                });
+
+                // Apply Institution Filter (If Super Admin and not "ALL")
+                if (filterLender !== 'ALL') {
+                    params.append('lender_id', filterLender);
+                }
+
+                const res = await api.get(`/audit/ledger?${params.toString()}`);
                 setLogs(res.data.data);
                 setTotalPages(res.data.meta.last_page);
                 setTotalLogs(res.data.meta.total);
@@ -42,9 +103,11 @@ export const AuditLedgerPage = () => {
                 setIsLoading(false);
             }
         };
+
         const timeoutId = setTimeout(() => fetchLogs(), 300);
         return () => clearTimeout(timeoutId);
-    }, [page, searchQuery]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, searchQuery, filterRisk, filterLender, dateFilter, customStartDate, customEndDate]);
 
     const getActionRisk = (action: string) => {
         const act = action.toUpperCase();
@@ -60,64 +123,17 @@ export const AuditLedgerPage = () => {
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     };
 
-    // --- ADVANCED CLIENT-SIDE FILTERING ---
-    const filteredLogs = useMemo(() => {
-        let result = logs;
-
-        // 1. Filter by Risk
-        if (filterRisk !== 'ALL') {
-            const isHighRisk = filterRisk === 'HIGH_RISK';
-            result = result.filter(log => (getActionRisk(log.action) === 'HIGH_RISK') === isHighRisk);
-        }
-
-        // 2. Filter by Date Range
-        if (dateFilter !== 'ALL') {
-            const now = new Date();
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-            result = result.filter(log => {
-                const logDate = new Date(log.created_at);
-                switch (dateFilter) {
-                    case 'TODAY': return logDate >= today;
-                    case 'YESTERDAY':
-                        const yesterdayStart = new Date(today);
-                        yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-                        return logDate >= yesterdayStart && logDate < today;
-                    case 'THIS_WEEK':
-                        const weekStart = new Date(today);
-                        weekStart.setDate(today.getDate() - today.getDay());
-                        return logDate >= weekStart;
-                    case 'THIS_MONTH':
-                        return logDate >= new Date(now.getFullYear(), now.getMonth(), 1);
-                    case 'CUSTOM':
-                        if (customStartDate && customEndDate) {
-                            const start = new Date(customStartDate);
-                            const end = new Date(customEndDate);
-                            end.setHours(23, 59, 59, 999);
-                            return logDate >= start && logDate <= end;
-                        }
-                        return true;
-                    default: return true;
-                }
-            });
-        }
-        return result;
-    }, [logs, filterRisk, dateFilter, customStartDate, customEndDate]);
-
-    // --- Derived Metrics ---
-    const highRiskCount = filteredLogs.filter(log => getActionRisk(log.action) === 'HIGH_RISK').length;
-    const uniqueAdmins = new Set(filteredLogs.map(log => log.user?.email).filter(Boolean)).size;
-
     // --- EXPORT CSV FUNCTION ---
     const handleExportCSV = () => {
-        if (filteredLogs.length === 0) return;
-        const headers = ['Timestamp', 'Operator Email', 'Entity Type', 'Action', 'Risk Level', 'JSON Details'];
-        const csvRows = filteredLogs.map(log => {
+        if (logs.length === 0) return;
+        const headers = ['Timestamp', 'Institution', 'Operator Email', 'IP Address', 'Entity Type', 'Action', 'Risk Level', 'JSON Details'];
+        const csvRows = logs.map(log => {
             const timestamp = new Date(log.created_at).toLocaleString().replace(/,/g, ''); 
+            const institution = log.lender?.name || 'GLOBAL ENVIRONMENT';
             const email = log.user?.email || 'SYSTEM AUTOMATION';
             const riskLevel = getActionRisk(log.action).replace('_', ' ');
             const safeDetails = `"${JSON.stringify(log.details).replace(/"/g, '""')}"`; 
-            return [timestamp, email, log.entity_type, log.action, riskLevel, safeDetails];
+            return [timestamp, institution, email, log.ip_address || 'UNKNOWN', log.entity_type, log.action, riskLevel, safeDetails];
         });
         const csvContent = [headers.join(','), ...csvRows.map(row => row.join(','))].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -156,7 +172,7 @@ export const AuditLedgerPage = () => {
             </div>
 
             {/* --- Bento Box Analytics Grid --- */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-8 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 mb-8 animate-in fade-in slide-in-from-bottom-6 duration-700">
                 <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex flex-col justify-between group hover:-translate-y-1 transition-all relative overflow-hidden">
                     <div className="absolute -right-4 -top-4 w-24 h-24 bg-blue-50 rounded-full blur-2xl pointer-events-none"></div>
                     <div className="flex items-center justify-between mb-3 relative z-10">
@@ -167,21 +183,7 @@ export const AuditLedgerPage = () => {
                     </div>
                     <div className="relative z-10">
                         <h4 className="text-2xl font-black text-slate-900 tracking-tight truncate">{totalLogs.toLocaleString()}</h4>
-                        <p className="text-xs text-slate-500 font-medium mt-1">Lifetime actions logged</p>
-                    </div>
-                </div>
-
-                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex flex-col justify-between group hover:-translate-y-1 transition-all relative overflow-hidden">
-                    <div className="absolute -right-4 -top-4 w-24 h-24 bg-rose-50 rounded-full blur-2xl pointer-events-none"></div>
-                    <div className="flex items-center justify-between mb-3 relative z-10">
-                        <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600 border border-rose-100">
-                            <ShieldAlert className="w-5 h-5" />
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-rose-600 text-right leading-tight">High Risk<br/>(Current View)</span>
-                    </div>
-                    <div className="relative z-10">
-                        <h4 className="text-2xl font-black text-slate-900 tracking-tight truncate">{highRiskCount}</h4>
-                        <p className="text-xs text-slate-500 font-medium mt-1">Suspensions & Impersonations</p>
+                        <p className="text-xs text-slate-500 font-medium mt-1">Found based on current filters</p>
                     </div>
                 </div>
 
@@ -191,11 +193,11 @@ export const AuditLedgerPage = () => {
                         <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100">
                             <Activity className="w-5 h-5" />
                         </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 text-right leading-tight">Active<br/>Admins</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 text-right leading-tight">System<br/>Integrity</span>
                     </div>
                     <div className="relative z-10">
-                        <h4 className="text-2xl font-black text-slate-900 tracking-tight truncate">{uniqueAdmins}</h4>
-                        <p className="text-xs text-slate-500 font-medium mt-1">Unique operators in view</p>
+                        <h4 className="text-2xl font-black text-slate-900 tracking-tight truncate">Synchronized</h4>
+                        <p className="text-xs text-slate-500 font-medium mt-1">Actions are logged in real-time</p>
                     </div>
                 </div>
             </div>
@@ -208,6 +210,25 @@ export const AuditLedgerPage = () => {
                     
                     <div className="flex flex-wrap items-center gap-3">
                         
+                        {/* INSTITUTION FILTER (SUPER ADMIN ONLY) */}
+                        {user?.role === 'Super Admin' && (
+                            <div className="flex items-center gap-2 pr-3 border-r border-slate-200">
+                                <div className="flex items-center gap-2 pl-1 pr-3 bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm">
+                                    <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                                    <select 
+                                        className="text-[10px] font-black text-slate-700 bg-transparent outline-none cursor-pointer uppercase tracking-widest max-w-[120px] sm:max-w-[180px] truncate"
+                                        value={filterLender}
+                                        onChange={(e) => { setFilterLender(e.target.value); setPage(1); }}
+                                    >
+                                        <option value="ALL">All Institutions</option>
+                                        {lenders.map((l) => (
+                                            <option key={l.id} value={l.id}>{l.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+
                         {/* RISK FILTER */}
                         <div className="flex items-center gap-2 pr-3 border-r border-slate-200">
                             <Filter className="w-4 h-4 text-slate-400" />
@@ -217,7 +238,7 @@ export const AuditLedgerPage = () => {
                             {['ALL', 'HIGH_RISK', 'STANDARD'].map((risk) => (
                                 <button
                                     key={risk}
-                                    onClick={() => setFilterRisk(risk as any)}
+                                    onClick={() => { setFilterRisk(risk as any); setPage(1); }}
                                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
                                         filterRisk === risk 
                                             ? 'bg-slate-800 text-white shadow-sm' 
@@ -236,7 +257,7 @@ export const AuditLedgerPage = () => {
                                 <select 
                                     className="text-[10px] font-black text-slate-700 bg-transparent outline-none cursor-pointer uppercase tracking-widest"
                                     value={dateFilter}
-                                    onChange={(e) => setDateFilter(e.target.value)}
+                                    onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
                                 >
                                     <option value="ALL">All Time</option>
                                     <option value="TODAY">Today</option>
@@ -254,14 +275,14 @@ export const AuditLedgerPage = () => {
                                         type="date" 
                                         className="px-2 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 outline-none bg-white shadow-sm cursor-pointer"
                                         value={customStartDate}
-                                        onChange={(e) => setCustomStartDate(e.target.value)}
+                                        onChange={(e) => { setCustomStartDate(e.target.value); setPage(1); }}
                                     />
                                     <span className="text-slate-400 text-xs font-bold">-</span>
                                     <input 
                                         type="date" 
                                         className="px-2 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 outline-none bg-white shadow-sm cursor-pointer"
                                         value={customEndDate}
-                                        onChange={(e) => setCustomEndDate(e.target.value)}
+                                        onChange={(e) => { setCustomEndDate(e.target.value); setPage(1); }}
                                     />
                                 </div>
                             )}
@@ -282,7 +303,7 @@ export const AuditLedgerPage = () => {
                         </div>
                         <button
                             onClick={handleExportCSV}
-                            disabled={filteredLogs.length === 0}
+                            disabled={logs.length === 0}
                             className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-colors shadow-sm disabled:opacity-50 shrink-0 outline-none"
                         >
                             <Download className="w-4 h-4" />
@@ -310,7 +331,7 @@ export const AuditLedgerPage = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {filteredLogs.length === 0 ? (
+                                {logs.length === 0 ? (
                                     <tr>
                                         <td colSpan={5} className="px-6 py-16 text-center">
                                             <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-blue-500">
@@ -321,7 +342,7 @@ export const AuditLedgerPage = () => {
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredLogs.map((log) => (
+                                    logs.map((log) => (
                                         <tr key={log.id} className="hover:bg-slate-50/50 transition-colors group">
                                             <td className="px-6 py-4 pl-8">
                                                 <div className="flex items-center gap-1.5 text-xs text-slate-900 font-bold mb-0.5">
@@ -393,14 +414,20 @@ export const AuditLedgerPage = () => {
                         </div>
                         
                         <div className="p-6 bg-slate-900 overflow-y-auto custom-scrollbar flex-1">
-                            <div className="grid grid-cols-2 gap-4 mb-6 pb-6 border-b border-slate-800">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 pb-6 border-b border-slate-800">
                                 <div>
                                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1">Log ID</p>
-                                    <p className="text-xs text-slate-300 font-mono">{selectedLog.id}</p>
+                                    <p className="text-xs text-slate-300 font-mono truncate" title={selectedLog.id}>{selectedLog.id}</p>
                                 </div>
                                 <div>
                                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1">Tenant ID</p>
-                                    <p className="text-xs text-slate-300 font-mono">{selectedLog.lender_id || 'Global Environment'}</p>
+                                    <p className="text-xs text-slate-300 font-mono truncate" title={selectedLog.lender?.name || selectedLog.lender_id || 'Global Environment'}>
+                                        {selectedLog.lender?.name || selectedLog.lender_id || 'Global Environment'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1 flex items-center"><Globe size={10} className="mr-1.5"/> Client IP</p>
+                                    <p className="text-xs text-amber-400 font-mono font-bold truncate">{selectedLog.ip_address || 'UNKNOWN'}</p>
                                 </div>
                             </div>
 

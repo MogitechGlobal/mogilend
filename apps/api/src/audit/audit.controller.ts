@@ -15,13 +15,17 @@ export class AuditController {
     @NestRequest() req: any,
     @Query('lender_id') lenderId?: string,
     @Query('page') page?: string,
-    @Query('search') search?: string
+    @Query('search') search?: string,
+    @Query('risk') risk?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string
   ) {
     return this.auditService.getLedger(
       req.user, 
       lenderId, 
       page ? parseInt(page) : 1, 
-      search || ''
+      search || '',
+      { risk, start, end } // Shipped to Prisma securely
     );
   }
 }

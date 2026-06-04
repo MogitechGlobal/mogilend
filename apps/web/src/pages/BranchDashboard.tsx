@@ -3,8 +3,8 @@ import { api } from '../lib/api';
 import useAuthStore from '../store/authStore';
 import {
   Users, TrendingUp, CreditCard, Clock,
-  ArrowRight, AlertTriangle,
-  Activity, Wallet, CheckCircle, FileText, MapPin, User, Calendar, ChevronDown, Briefcase, Filter
+  ArrowRight, AlertTriangle, Phone,
+  Activity, Wallet, CheckCircle, FileText, MapPin, User, Calendar, ChevronDown, Briefcase, Filter, Loader2, Megaphone, BarChart3
 } from 'lucide-react';
 import {
   BarChart, Bar, Line, ComposedChart, XAxis, YAxis,
@@ -43,7 +43,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
 
   const [appliedFilters, setAppliedFilters] = useState({ ...filters });
 
-  // --- DYNAMIC KPI STATE ---
+  // --- DYNAMIC KPI & COLLECTIONS STATE ---
   const [isLoading, setIsLoading] = useState(true);
   const [kpis, setKpis] = useState({
     activePortfolio: 0,
@@ -56,6 +56,10 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
   const [cashFlowData, setCashFlowData] = useState<any[]>([]);
   const [statusChartData, setStatusChartData] = useState<any[]>([]);
   const [branchChartData, setBranchChartData] = useState<any[]>([]);
+
+  // Collections State
+  const [activeDueTab, setActiveDueTab] = useState<'yesterday' | 'today' | 'tomorrow'>('today');
+  const [dueCollections, setDueCollections] = useState<{ yesterday: any[], today: any[], tomorrow: any[] }>({ yesterday: [], today: [], tomorrow: [] });
 
   // Set dates dynamically based on period selection
   const handlePeriodChange = (period: string) => {
@@ -163,7 +167,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     // STEP A: Apply Hierarchical & UI Filters to Borrowers
     let currentBorrowers = rawBorrowers;
     
-    // Strict Role Enforcement
+    // Strict Role Enforcement (This guarantees Loan Officers ONLY see their own borrowers)
     if (user?.role === 'Loan Officer') {
       currentBorrowers = currentBorrowers.filter(b => b.user_id === user.id);
     } else if (user?.role === 'Branch Manager') {
@@ -209,7 +213,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     });
 
 
-    // --- 3. CALCULATE KPIs ---
+    // --- 3. CALCULATE KPIs & COLLECTIONS SCHEDULE ---
     const activeLoans = portfolioLoans.filter((l: any) => l.status === 'DISBURSED' || l.status === 'DEFAULTED');
     const activePortfolio = activeLoans.reduce((sum: number, l: any) => sum + (Number(l.outstanding_balance) || 0), 0);
 
@@ -234,6 +238,54 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       parPercentage,
       loansIssuedInPeriod
     });
+
+    // --- NEW: Calculate Due Installments ---
+    const todayMs = new Date().setHours(0, 0, 0, 0);
+    const yesterdayMs = todayMs - 86400000; // - 1 day
+    const tomorrowMs = todayMs + 86400000; // + 1 day
+    
+    const dueYesterday: any[] = [];
+    const dueToday: any[] = [];
+    const dueTomorrow: any[] = [];
+
+    portfolioLoans.forEach((loan: any) => {
+      // Only check schedule for active loans
+      if (loan.status !== 'DISBURSED' || !loan.disbursed_at || loan.outstanding_balance <= 0) return;
+      
+      const cycle = loan.loan_product?.repayment_cycle || 'MONTHLY';
+      const term = loan.term || 1;
+      const installmentAmount = (Number(loan.total_owed) || 0) / term;
+      const disbursedDate = new Date(loan.disbursed_at);
+      disbursedDate.setHours(0, 0, 0, 0);
+
+      let isDueYesterday = false;
+      let isDueToday = false;
+      let isDueTomorrow = false;
+
+      // Project all expected due dates for the length of the loan
+      for (let i = 1; i <= term; i++) {
+        const expectedDueDate = new Date(disbursedDate);
+        if (cycle === 'DAILY') {
+          expectedDueDate.setDate(expectedDueDate.getDate() + i);
+        } else if (cycle === 'WEEKLY') {
+          expectedDueDate.setDate(expectedDueDate.getDate() + (i * 7));
+        } else if (cycle === 'MONTHLY') {
+          expectedDueDate.setMonth(expectedDueDate.getMonth() + i);
+        }
+
+        const expectedTime = expectedDueDate.getTime();
+        if (expectedTime === yesterdayMs) isDueYesterday = true;
+        if (expectedTime === todayMs) isDueToday = true;
+        if (expectedTime === tomorrowMs) isDueTomorrow = true;
+      }
+
+      if (isDueYesterday) dueYesterday.push({ ...loan, installmentAmount });
+      if (isDueToday) dueToday.push({ ...loan, installmentAmount });
+      if (isDueTomorrow) dueTomorrow.push({ ...loan, installmentAmount });
+    });
+
+    setDueCollections({ yesterday: dueYesterday, today: dueToday, tomorrow: dueTomorrow });
+
 
     // --- 4. GENERATE CHART DATA ---
     const statusCounts = portfolioLoans.reduce((acc: any, loan: any) => {
@@ -268,7 +320,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     let chartBins: any[] = [];
     
     if (daysDiff <= 31) {
-        // Daily Bins
         for (let d = new Date(startObj); d <= endObj; d.setDate(d.getDate() + 1)) {
             chartBins.push({
                 label: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
@@ -288,7 +339,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
             if (bin) bin.repaid += Number(t.amount) || 0;
         });
     } else {
-        // Monthly Bins
         const startMonth = new Date(startObj.getFullYear(), startObj.getMonth(), 1);
         const endMonth = new Date(endObj.getFullYear(), endObj.getMonth(), 1);
         
@@ -357,7 +407,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
   const formatCurrency = (val: number) => {
     if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M`;
     if (val >= 1000) return `${(val / 1000).toFixed(1)}K`;
-    return val.toString();
+    return new Intl.NumberFormat('en-KE').format(val || 0);
   };
 
   const CustomCashFlowTooltip = ({ active, payload, label }: any) => {
@@ -399,10 +449,11 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     return 'Executive Dashboard';
   };
 
-  // Determine available officers for the dropdown based on selected branch
   const availableOfficers = officersList.filter(o => 
     filters.branch === 'all' ? true : o.branch_id === filters.branch
   );
+
+  const currentDueList = dueCollections[activeDueTab];
 
   return (
     <div className="animate-fade-in space-y-6 max-w-7xl mx-auto pb-10">
@@ -515,18 +566,26 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       </div>
 
       {/* Quick Action Grid with Role Enforcements */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4">
         {user?.role !== 'Loan Officer' && (
-          <QuickAction title="Disburse Loan" icon={CreditCard} colorClass="bg-blue-50 text-blue-600" onClick={() => onNavigate('disbursements')} />
+          <QuickAction title="Disburse" icon={CreditCard} colorClass="bg-blue-50 text-blue-600" onClick={() => onNavigate('disbursements')} />
         )}
         
         {user?.role !== 'Loan Officer' && (
-          <QuickAction title="Receive Pay" icon={Wallet} colorClass="bg-emerald-50 text-emerald-600" onClick={() => onNavigate('repayments')} />
+          <QuickAction title="Receive" icon={Wallet} colorClass="bg-emerald-50 text-emerald-600" onClick={() => onNavigate('repayments')} />
         )}
         
         <QuickAction title="New Client" icon={Users} colorClass="bg-indigo-50 text-indigo-600" onClick={() => onNavigate('borrowers')} />
+        
         <QuickAction title="Overdue" icon={AlertTriangle} colorClass="bg-red-50 text-red-600" onClick={() => onNavigate('active-loans')} />
         
+        {['Super Admin', 'Lender Admin', 'Branch Manager'].includes(user?.role) && (
+          <>
+            <QuickAction title="Leads" icon={Megaphone} colorClass="bg-amber-50 text-amber-600" onClick={() => onNavigate('marketing-leads')} />
+            <QuickAction title="Marketing Overview" icon={BarChart3} colorClass="bg-fuchsia-50 text-fuchsia-600" onClick={() => onNavigate('marketing-overview')} />
+          </>
+        )}
+
         {user?.role !== 'Loan Officer' && (
           <QuickAction title="Reports" icon={FileText} colorClass="bg-slate-100 text-slate-700" onClick={() => onNavigate('financial-reports')} />
         )}
@@ -542,7 +601,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
         />
         <StatCard
           title="Period Collections"
-          value={`KES ${kpis.collectedInPeriod.toLocaleString()}`}
+          value={`KES ${formatCurrency(kpis.collectedInPeriod)}`}
           subtext={<><CheckCircle size={14} className="mr-1.5 text-emerald-500" /> In Selected Range</>}
           icon={TrendingUp} colorClass="text-emerald-600" highlightClass="bg-emerald-500"
         />
@@ -560,8 +619,100 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
         />
       </div>
 
+      {/* --- UPCOMING COLLECTIONS COMPONENT --- */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col mt-6">
+        <div className="p-6 border-b border-slate-200 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center">
+              <Calendar className="mr-2 text-blue-600" size={20} />
+              Upcoming Collections Tracker
+            </h2>
+            <p className="text-xs text-slate-500 font-medium mt-1">Track expected installments based on loan product schedules</p>
+          </div>
+          <div className="flex bg-slate-100 p-1 rounded-xl w-full lg:w-auto overflow-x-auto">
+            <button 
+              onClick={() => setActiveDueTab('yesterday')}
+              className={`flex-1 lg:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'yesterday' ? 'bg-white text-red-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Due Yesterday ({dueCollections.yesterday.length})
+            </button>
+            <button 
+              onClick={() => setActiveDueTab('today')}
+              className={`flex-1 lg:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'today' ? 'bg-white text-blue-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Due Today ({dueCollections.today.length})
+            </button>
+            <button 
+              onClick={() => setActiveDueTab('tomorrow')}
+              className={`flex-1 lg:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'tomorrow' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Due Tomorrow ({dueCollections.tomorrow.length})
+            </button>
+          </div>
+        </div>
+        
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[900px]">
+            <thead>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-widest font-black">
+                <th className="p-4 pl-6 w-1/4">Borrower</th>
+                <th className="p-4 w-1/5">Contact</th>
+                <th className="p-4 w-1/4">Loan Product</th>
+                <th className="p-4 text-right w-1/6">Expected Installment</th>
+                <th className="p-4 text-right pr-6 w-1/6">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                <tr><td colSpan={5} className="py-8 text-center text-slate-400"><Loader2 className="animate-spin inline mx-auto" size={24}/></td></tr>
+              ) : currentDueList.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-16 text-center">
+                    <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400"><CheckCircle size={28} /></div>
+                    <p className="text-slate-700 font-bold text-lg">You're all caught up!</p>
+                    <p className="text-slate-500 text-sm mt-1">No scheduled installments are due {activeDueTab}.</p>
+                  </td>
+                </tr>
+              ) : (
+                currentDueList.map(loan => (
+                  <tr key={loan.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="p-4 pl-6">
+                      <p className="font-bold text-slate-900 text-sm mb-0.5">{loan.borrower?.first_name} {loan.borrower?.last_name}</p>
+                      <p className="text-[10px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
+                    </td>
+                    <td className="p-4">
+                      <p className="text-xs font-bold text-slate-700 flex items-center"><Phone size={12} className="mr-1.5 text-slate-400" /> {loan.borrower?.phone_number}</p>
+                    </td>
+                    <td className="p-4">
+                      <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-indigo-100 inline-block mb-1">
+                        {loan.loan_product?.name || 'Standard Loan'}
+                      </span>
+                      <p className="text-[10px] font-bold text-slate-500 flex items-center">
+                        Bal: KES {formatCurrency(loan.outstanding_balance)}
+                      </p>
+                    </td>
+                    <td className="p-4 text-right">
+                      <p className={`text-sm font-black ${activeDueTab === 'yesterday' ? 'text-red-600' : 'text-slate-900'}`}>
+                        KES {formatCurrency(loan.installmentAmount)}
+                      </p>
+                    </td>
+                    <td className="p-4 text-right pr-6">
+                       {user?.role !== 'Loan Officer' && (
+                         <button onClick={() => onNavigate('repayments')} className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg text-xs font-bold transition-colors outline-none shadow-sm">
+                            Log Repayment
+                         </button>
+                       )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* --- ANALYTICS ROW 1: Cash Flow (2/3) & Loan Status (1/3) --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
 
         {/* Cash Flow Trends Chart */}
         <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8 flex flex-col h-[400px]">

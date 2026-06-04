@@ -17,14 +17,12 @@ export class AuditInterceptor implements NestInterceptor {
     if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
       return next.handle().pipe(
         tap({
-          // Explicitly type callbacks to bypass noImplicitAny rules
           next: (data: any) => this.logAction(req, data, 'SUCCESS'),
           error: (error: any) => this.logAction(req, null, 'FAILED', error.message),
         }),
       );
     }
 
-    // For GET requests, just let them pass through normally
     return next.handle();
   }
 
@@ -37,15 +35,15 @@ export class AuditInterceptor implements NestInterceptor {
     const url = req.originalUrl || req.url;
     const method = req.method;
 
-    // FIX: Added explicit string typing '(p: string)' to resolve your compilation error
+    // Capture the client IP Address securely
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'UNKNOWN';
+
     const urlParts = url.split('?')[0].split('/').filter((p: string) => p.length > 0 && p !== 'v1' && p !== 'api');
     const baseEntity = urlParts.length > 0 ? urlParts[0].toUpperCase() : 'SYSTEM';
 
-    // Dynamically figure out the Action Name
     let action = `${method}_${baseEntity}`; 
     const lastPart = urlParts[urlParts.length - 1];
 
-    // If the URL ends in a specific action word (not an ID), capture it (e.g., /disburse, /reject, /transfer)
     if (lastPart && !lastPart.match(/^[0-9a-fA-F-]{36}$/) && isNaN(Number(lastPart))) {
         action = `${lastPart.toUpperCase()}_${baseEntity}`;
     } else {
@@ -54,12 +52,13 @@ export class AuditInterceptor implements NestInterceptor {
         if (method === 'DELETE') action = `DELETE_${baseEntity}`;
     }
 
-    // Try to extract the entity ID being modified (from the URL params or the returned response)
     const entityId = req.params?.id || responseData?.id || null;
 
-    // Safely construct details payload (masking passwords if a user was created)
+    // Safely construct details payload (masking passwords)
     const safeBody = { ...req.body };
     if (safeBody.password) safeBody.password = '***HIDDEN***';
+    if (safeBody.current_password) safeBody.current_password = '***HIDDEN***';
+    if (safeBody.new_password) safeBody.new_password = '***HIDDEN***';
 
     try {
       await this.prisma.auditLog.create({
@@ -69,6 +68,7 @@ export class AuditInterceptor implements NestInterceptor {
           action: action,
           entity_type: baseEntity,
           entity_id: entityId,
+          ip_address: ipAddress, // <-- NEW: Security Tracking
           details: {
             endpoint: url,
             method: method,
