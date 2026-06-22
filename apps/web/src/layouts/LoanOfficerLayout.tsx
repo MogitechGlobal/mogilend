@@ -125,27 +125,27 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
           <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-4">Core Modules</p>
 
           {/* Group 1: Credit Administration */}
-          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Cashier']) && (
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Cashier', 'Viewer']) && (
             <NavGroup title="Credit Admin" icon={CreditCard} menuKey="credit">
-              {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) && <NavLink path="application" label="New Application" icon={FileEdit} />}
-              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="disbursements" label="Disbursements" icon={Send} />}
-              {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) && <NavLink path="repayments" label="Repayments" icon={RefreshCw} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Viewer']) && <NavLink path="application" label="New Application" icon={FileEdit} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && <NavLink path="disbursements" label="Disbursements" icon={Send} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier', 'Viewer']) && <NavLink path="repayments" label="Repayments" icon={RefreshCw} />}
             </NavGroup>
           )}
 
           {/* Group 2: Customer Registry */}
-          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) && (
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Viewer']) && (
             <NavGroup title="Customer Registry" icon={Users} menuKey="registry">
               <NavLink path="borrowers" label="Client Database" icon={Users} />
-              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="pending-amendments" label="Pending Amendments" icon={FileClock} />}
-              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="approvals-pending" label="Approvals Pending" icon={CheckSquare} />}
-              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="customer-transfer" label="Customer Transfer" icon={ArrowRightLeft} />}
-              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="customer-edits" label="Customer Edits" icon={UserCog} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && <NavLink path="pending-amendments" label="Pending Amendments" icon={FileClock} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && <NavLink path="approvals-pending" label="Approvals Pending" icon={CheckSquare} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && <NavLink path="customer-transfer" label="Customer Transfer" icon={ArrowRightLeft} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && <NavLink path="customer-edits" label="Customer Edits" icon={UserCog} />}
             </NavGroup>
           )}
 
           {/* Group 3: Loan Portfolio */}
-          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) && (
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Viewer']) && (
             <NavGroup title="Loan Portfolio" icon={Briefcase} menuKey="portfolio">
               <NavLink path="active-loans" label="Active Loans" icon={Briefcase} />
             </NavGroup>
@@ -154,7 +154,7 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
           <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-6">Growth & Analytics</p>
 
           {/* Group 4: Marketing */}
-          {hasAccess(['Lender Admin', 'Branch Manager']) && (
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && (
             <NavGroup title="Marketing" icon={Megaphone} menuKey="marketing_group">
               <NavLink path="marketing" label="Campaign Overview" icon={Megaphone} />
               <NavLink path="marketing-leads" label="Lead Generation" icon={Target} />
@@ -162,11 +162,11 @@ export const LoanOfficerLayout = ({ children, onNavigate, onLogout, currentPath 
           )}
 
           {/* Group 5: Reports */}
-          {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) && (
+          {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier', 'Viewer']) && (
             <NavGroup title="Reports & Insights" icon={PieChart} menuKey="reports">
-              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="financial-reports" label="Financial Reports" icon={LineChart} />}
-              {hasAccess(['Lender Admin', 'Branch Manager']) && <NavLink path="portfolio-report" label="Portfolio Analytics" icon={PieChart} />}
-              {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) && <NavLink path="transaction-history" label="Transaction History" icon={History} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && <NavLink path="financial-reports" label="Financial Reports" icon={LineChart} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) && <NavLink path="portfolio-report" label="Portfolio Analytics" icon={PieChart} />}
+              {hasAccess(['Lender Admin', 'Branch Manager', 'Cashier', 'Viewer']) && <NavLink path="transaction-history" label="Transaction History" icon={History} />}
             </NavGroup>
           )}
 
