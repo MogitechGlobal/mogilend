@@ -239,24 +239,43 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       loansIssuedInPeriod
     });
 
-    // --- NEW: Calculate Due Installments ---
-    const todayMs = new Date().setHours(0, 0, 0, 0);
-    const yesterdayMs = todayMs - 86400000; // - 1 day
-    const tomorrowMs = todayMs + 86400000; // + 1 day
+    // --- NEW: Calculate Due Installments (FIXED) ---
     
+    // Helper function to safely format dates to YYYY-MM-DD in the local timezone
+    const getLocalYMD = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const now = new Date();
+    const todayStr = getLocalYMD(now);
+
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayStr = getLocalYMD(yesterdayDate);
+
+    const tomorrowDate = new Date(now);
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const tomorrowStr = getLocalYMD(tomorrowDate);
+
     const dueYesterday: any[] = [];
     const dueToday: any[] = [];
     const dueTomorrow: any[] = [];
 
-    portfolioLoans.forEach((loan: any) => {
+    // We use `currentLoans` instead of `portfolioLoans` so the real-time 
+    // tracker is not broken by the user changing the dashboard's Date Range filter.
+    currentLoans.forEach((loan: any) => {
       // Only check schedule for active loans
       if (loan.status !== 'DISBURSED' || !loan.disbursed_at || loan.outstanding_balance <= 0) return;
       
-      const cycle = loan.loan_product?.repayment_cycle || 'MONTHLY';
+      // Ensure cycle string is safely uppercase
+      const cycle = String(loan.loan_product?.repayment_cycle || 'MONTHLY').toUpperCase();
       const term = loan.term || 1;
       const installmentAmount = (Number(loan.total_owed) || 0) / term;
+      
       const disbursedDate = new Date(loan.disbursed_at);
-      disbursedDate.setHours(0, 0, 0, 0);
 
       let isDueYesterday = false;
       let isDueToday = false;
@@ -265,6 +284,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       // Project all expected due dates for the length of the loan
       for (let i = 1; i <= term; i++) {
         const expectedDueDate = new Date(disbursedDate);
+        
         if (cycle === 'DAILY') {
           expectedDueDate.setDate(expectedDueDate.getDate() + i);
         } else if (cycle === 'WEEKLY') {
@@ -273,10 +293,12 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
           expectedDueDate.setMonth(expectedDueDate.getMonth() + i);
         }
 
-        const expectedTime = expectedDueDate.getTime();
-        if (expectedTime === yesterdayMs) isDueYesterday = true;
-        if (expectedTime === todayMs) isDueToday = true;
-        if (expectedTime === tomorrowMs) isDueTomorrow = true;
+        // Compare safe strings instead of strict epoch milliseconds
+        const expectedStr = getLocalYMD(expectedDueDate);
+        
+        if (expectedStr === yesterdayStr) isDueYesterday = true;
+        if (expectedStr === todayStr) isDueToday = true;
+        if (expectedStr === tomorrowStr) isDueTomorrow = true;
       }
 
       if (isDueYesterday) dueYesterday.push({ ...loan, installmentAmount });

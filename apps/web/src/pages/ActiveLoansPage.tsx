@@ -4,7 +4,7 @@ import useAuthStore from '../store/authStore';
 import { 
   Search, Filter, Briefcase, FileText, 
   AlertTriangle, CheckCircle2, ChevronRight, ArrowRight, 
-  Loader2, Wallet, Send, ShieldCheck, MapPin, User, Calendar, ChevronDown, Clock, XCircle
+  Loader2, Wallet, Send, ShieldCheck, MapPin, User, Calendar, ChevronDown, Clock, XCircle, Phone
 } from 'lucide-react';
 
 // Helper to calculate current month dates synchronously
@@ -15,11 +15,17 @@ const getCurrentMonthDates = () => {
   return { start, end };
 };
 
+// Helper to safely format dates to YYYY-MM-DD in the local timezone
+const getLocalYMD = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => void }) => {
   const user = useAuthStore((state: any) => state.user);
   const canManage = ['Super Admin', 'Lender Admin', 'Branch Manager'].includes(user?.role);
-  
-  // NEW: Strict rule for who can see the Actions column at all
   const canViewActions = ['Super Admin', 'Lender Admin', 'Branch Manager'].includes(user?.role);
   
   // --- RAW DATA STATE ---
@@ -40,8 +46,12 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
 
   // --- LOCAL UI STATE ---
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ACTIVE'); // 'ALL', 'PENDING', 'ACTIVE', 'DEFAULTED'
+  const [statusFilter, setStatusFilter] = useState('ACTIVE'); 
   const [filteredLoans, setFilteredLoans] = useState<any[]>([]);
+
+  // --- COLLECTIONS TRACKER STATE ---
+  const [activeDueTab, setActiveDueTab] = useState<'yesterday' | 'today' | 'tomorrow'>('today');
+  const [dueCollections, setDueCollections] = useState<{ yesterday: any[], today: any[], tomorrow: any[] }>({ yesterday: [], today: [], tomorrow: [] });
 
   // Handle preset date periods
   const handlePeriodChange = (period: string) => {
@@ -97,7 +107,6 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
         setRawLoans(fetchedLoans);
         setBranchesList(branchesRes.data || []);
         
-        // Extract strictly staff users
         const staff = fetchedUsers.filter((u: any) => 
           u.role?.name === 'Loan Officer' || 
           u.role?.name === 'Branch Manager' || 
@@ -108,7 +117,6 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
         if (staff.length > 0) {
           setOfficersList(staff);
         } else {
-          // Fallback: Infer officers from loans
           const uniqueOfficerIds = Array.from(new Set(fetchedLoans.map((l: any) => l.borrower?.user_id).filter(Boolean)));
           const fallbackOfficers = uniqueOfficerIds.map((id: any) => {
             const sampleLoan = fetchedLoans.find((l: any) => l.borrower?.user_id === id);
@@ -139,7 +147,7 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
     setAppliedFilters(filters);
   };
 
-  // 2. APPLY HIERARCHICAL & DATE FILTERS
+  // 2. APPLY HIERARCHICAL & DATE FILTERS FOR MAIN TABLE
   useEffect(() => {
     if (isFetching || !appliedFilters.startDate) return;
 
@@ -200,9 +208,93 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
     setFilteredLoans(processed);
   }, [rawLoans, appliedFilters, statusFilter, searchQuery, isFetching, user]);
 
+  // 3. COLLECTIONS TRACKER CALCULATION
+  useEffect(() => {
+    if (isFetching) return;
+
+    // Pre-filter loans based ONLY on hierarchy (ignore date ranges for collections)
+    let trackerBase = rawLoans;
+    
+    if (user?.role === 'Loan Officer') {
+      trackerBase = trackerBase.filter(l => l.borrower?.user_id === user.id);
+    } else if (user?.role === 'Branch Manager') {
+      trackerBase = trackerBase.filter(l => l.borrower?.branch_id === user.branch_id);
+      if (appliedFilters.officer !== 'all') {
+        trackerBase = trackerBase.filter(l => l.borrower?.user_id === appliedFilters.officer);
+      }
+    } else {
+      if (appliedFilters.branch !== 'all') {
+        trackerBase = trackerBase.filter(l => l.borrower?.branch_id === appliedFilters.branch);
+      }
+      if (appliedFilters.officer !== 'all') {
+        trackerBase = trackerBase.filter(l => l.borrower?.user_id === appliedFilters.officer);
+      }
+    }
+
+    const now = new Date();
+    const todayStr = getLocalYMD(now);
+
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayStr = getLocalYMD(yesterdayDate);
+
+    const tomorrowDate = new Date(now);
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const tomorrowStr = getLocalYMD(tomorrowDate);
+
+    const dueYesterday: any[] = [];
+    const dueToday: any[] = [];
+    const dueTomorrow: any[] = [];
+
+    trackerBase.forEach((loan: any) => {
+      // Only check schedule for active loans
+      if (loan.status !== 'DISBURSED' || !loan.disbursed_at || loan.outstanding_balance <= 0) return;
+      
+      const cycle = String(loan.loan_product?.repayment_cycle || 'MONTHLY').toUpperCase();
+      const term = loan.term || 1;
+      const installmentAmount = (Number(loan.total_owed) || 0) / term;
+      
+      const disbursedDate = new Date(loan.disbursed_at);
+
+      let isDueYesterday = false;
+      let isDueToday = false;
+      let isDueTomorrow = false;
+
+      // Project all expected due dates for the length of the loan
+      for (let i = 1; i <= term; i++) {
+        const expectedDueDate = new Date(disbursedDate);
+        
+        if (cycle === 'DAILY') {
+          expectedDueDate.setDate(expectedDueDate.getDate() + i);
+        } else if (cycle === 'WEEKLY') {
+          expectedDueDate.setDate(expectedDueDate.getDate() + (i * 7));
+        } else if (cycle === 'MONTHLY') {
+          expectedDueDate.setMonth(expectedDueDate.getMonth() + i);
+        }
+
+        const expectedStr = getLocalYMD(expectedDueDate);
+        
+        if (expectedStr === yesterdayStr) isDueYesterday = true;
+        if (expectedStr === todayStr) isDueToday = true;
+        if (expectedStr === tomorrowStr) isDueTomorrow = true;
+      }
+
+      if (isDueYesterday) dueYesterday.push({ ...loan, installmentAmount });
+      if (isDueToday) dueToday.push({ ...loan, installmentAmount });
+      if (isDueTomorrow) dueTomorrow.push({ ...loan, installmentAmount });
+    });
+
+    setDueCollections({ yesterday: dueYesterday, today: dueToday, tomorrow: dueTomorrow });
+
+  }, [rawLoans, appliedFilters.branch, appliedFilters.officer, isFetching, user]);
+
   const availableOfficers = officersList.filter(o => 
     filters.branch === 'all' ? true : o.branch_id === filters.branch || !o.branch_id
   );
+
+  const formatCurrency = (val: number) => {
+    return new Intl.NumberFormat('en-KE').format(val || 0);
+  };
 
   const StatusBadge = ({ status }: { status: string }) => {
     if (status === 'ACTIVE') return <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border border-emerald-200"><CheckCircle2 size={10} className="inline mr-1 -mt-0.5"/> Active</span>;
@@ -210,6 +302,8 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
     if (status === 'COMPLETED') return <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border border-blue-200"><CheckCircle2 size={10} className="inline mr-1 -mt-0.5"/> Completed</span>;
     return <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border border-amber-200"><Clock size={10} className="inline mr-1 -mt-0.5"/> Pending</span>;
   };
+
+  const currentDueList = dueCollections[activeDueTab];
 
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-10">
@@ -314,6 +408,98 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
         </button>
       </div>
 
+      {/* --- UPCOMING COLLECTIONS TRACKER --- */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col mb-8">
+        <div className="p-6 border-b border-slate-200 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center">
+              <Calendar className="mr-2 text-blue-600" size={20} />
+              Upcoming Collections Tracker
+            </h2>
+            <p className="text-xs text-slate-500 font-medium mt-1">Track expected installments based on loan product schedules</p>
+          </div>
+          <div className="flex bg-slate-100 p-1 rounded-xl w-full lg:w-auto overflow-x-auto">
+            <button 
+              onClick={() => setActiveDueTab('yesterday')}
+              className={`flex-1 lg:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'yesterday' ? 'bg-white text-red-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Due Yesterday ({dueCollections.yesterday.length})
+            </button>
+            <button 
+              onClick={() => setActiveDueTab('today')}
+              className={`flex-1 lg:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'today' ? 'bg-white text-blue-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Due Today ({dueCollections.today.length})
+            </button>
+            <button 
+              onClick={() => setActiveDueTab('tomorrow')}
+              className={`flex-1 lg:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'tomorrow' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Due Tomorrow ({dueCollections.tomorrow.length})
+            </button>
+          </div>
+        </div>
+        
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[900px]">
+            <thead>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-widest font-black">
+                <th className="p-4 pl-6 w-1/4">Borrower</th>
+                <th className="p-4 w-1/5">Contact</th>
+                <th className="p-4 w-1/4">Loan Product</th>
+                <th className="p-4 text-right w-1/6">Expected Installment</th>
+                <th className="p-4 text-right pr-6 w-1/6">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isFetching ? (
+                <tr><td colSpan={5} className="py-8 text-center text-slate-400"><Loader2 className="animate-spin inline mx-auto" size={24}/></td></tr>
+              ) : currentDueList.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-10 text-center">
+                    <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400"><CheckCircle2 size={24} /></div>
+                    <p className="text-slate-700 font-bold text-sm">You're all caught up!</p>
+                    <p className="text-slate-500 text-xs mt-1">No scheduled installments are due {activeDueTab}.</p>
+                  </td>
+                </tr>
+              ) : (
+                currentDueList.map(loan => (
+                  <tr key={loan.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="p-4 pl-6">
+                      <p className="font-bold text-slate-900 text-sm mb-0.5">{loan.borrower?.first_name} {loan.borrower?.last_name}</p>
+                      <p className="text-[10px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
+                    </td>
+                    <td className="p-4">
+                      <p className="text-xs font-bold text-slate-700 flex items-center"><Phone size={12} className="mr-1.5 text-slate-400" /> {loan.borrower?.phone_number}</p>
+                    </td>
+                    <td className="p-4">
+                      <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-indigo-100 inline-block mb-1">
+                        {loan.loan_product?.name || 'Standard Loan'}
+                      </span>
+                      <p className="text-[10px] font-bold text-slate-500 flex items-center">
+                        Bal: KES {formatCurrency(loan.outstanding_balance)}
+                      </p>
+                    </td>
+                    <td className="p-4 text-right">
+                      <p className={`text-sm font-black ${activeDueTab === 'yesterday' ? 'text-red-600' : 'text-slate-900'}`}>
+                        KES {formatCurrency(loan.installmentAmount)}
+                      </p>
+                    </td>
+                    <td className="p-4 text-right pr-6">
+                       {canManage && (
+                         <button onClick={() => onNavigate('repayments')} className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg text-xs font-bold transition-colors outline-none shadow-sm">
+                            Log Repayment
+                         </button>
+                       )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Tabs & Search */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div className="flex space-x-2 overflow-x-auto pb-2 custom-scrollbar max-w-full">
@@ -344,7 +530,7 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
         </div>
       </div>
 
-      {/* Data Table */}
+      {/* Main Data Table */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px]">
         <div className="overflow-x-auto w-full">
           <table className="w-full text-left border-collapse min-w-[1000px]">

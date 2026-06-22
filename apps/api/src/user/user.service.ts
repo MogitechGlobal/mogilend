@@ -62,7 +62,8 @@ export class UserService {
         password_hash: passwordHash,
         role_id: role.id,
         lender_id: lenderId,
-        branch_id: data.branch_id,
+        // Ensure empty strings are mapped to true NULL for DB consistency
+        branch_id: data.branch_id ? data.branch_id : null,
         is_active: true,
         requires_password_change: true,
         invite_expires_at: expiresAt
@@ -173,7 +174,9 @@ export class UserService {
       throw new ForbiddenException('Unauthorized to modify this user.');
     }
 
-    const updateData: any = { branch_id: data.branch_id };
+    const updateData: any = { 
+      branch_id: data.branch_id ? data.branch_id : null 
+    };
 
     if (data.role_name) {
       const role = await this.prisma.role.findUnique({ where: { name: data.role_name }});

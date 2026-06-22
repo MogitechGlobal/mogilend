@@ -64,7 +64,9 @@ export const RegisterStaffPage = () => {
       
       await api.post('/users/invite', {
         ...formData,
-        lender_id: activeLenderId
+        lender_id: activeLenderId,
+        // Clear branch_id if a global role is selected
+        branch_id: ['Lender Admin', 'Viewer'].includes(formData.role_name) ? '' : formData.branch_id
       });
 
       setIsInviteModalOpen(false);
@@ -105,7 +107,7 @@ export const RegisterStaffPage = () => {
     try {
       await api.patch(`/users/${editData.id}`, {
         role_name: editData.role_name,
-        branch_id: editData.branch_id
+        branch_id: ['Lender Admin', 'Viewer'].includes(editData.role_name) ? '' : editData.branch_id
       });
       setIsEditModalOpen(false);
       loadData();
@@ -326,6 +328,7 @@ export const RegisterStaffPage = () => {
                         <option value="Loan Officer">Loan Officer</option>
                         <option value="Cashier">Cashier</option>
                         <option value="Branch Manager">Branch Manager</option>
+                        <option value="Viewer">Viewer (Read Only)</option>
                         {user?.role === 'Super Admin' && <option value="Lender Admin">Lender Admin (HQ)</option>}
                       </select>
                     </div>
@@ -334,7 +337,7 @@ export const RegisterStaffPage = () => {
                     <label className="text-xs font-bold text-slate-700 block mb-1.5">Assigned Location</label>
                     <div className="relative">
                       <Briefcase size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <select required={formData.role_name !== 'Lender Admin'} value={formData.branch_id} onChange={e => setFormData({ ...formData, branch_id: e.target.value })} className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-700 appearance-none">
+                      <select required={!['Lender Admin', 'Viewer'].includes(formData.role_name)} value={formData.branch_id} onChange={e => setFormData({ ...formData, branch_id: e.target.value })} className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-700 appearance-none">
                         <option value="" disabled>-- Select Branch --</option>
                         {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                       </select>
@@ -374,6 +377,7 @@ export const RegisterStaffPage = () => {
                       <option value="Loan Officer">Loan Officer</option>
                       <option value="Cashier">Cashier</option>
                       <option value="Branch Manager">Branch Manager</option>
+                      <option value="Viewer">Viewer (Read Only)</option>
                       {user?.role === 'Super Admin' && <option value="Lender Admin">Lender Admin (HQ)</option>}
                     </select>
                   </div>
@@ -382,7 +386,8 @@ export const RegisterStaffPage = () => {
                   <label className="text-xs font-bold text-slate-700 block mb-1.5">Assigned Location</label>
                   <div className="relative">
                     <Briefcase size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <select required value={editData.branch_id} onChange={e => setEditData({ ...editData, branch_id: e.target.value })} className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-700 appearance-none">
+                    <select required={!['Lender Admin', 'Viewer'].includes(editData.role_name)} value={editData.branch_id} onChange={e => setEditData({ ...editData, branch_id: e.target.value })} className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-700 appearance-none">
+                      <option value="" disabled>-- Select Branch --</option>
                       {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
