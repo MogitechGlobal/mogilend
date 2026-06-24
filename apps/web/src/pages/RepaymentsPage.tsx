@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import useAuthStore from '../store/authStore';
 import { api } from '../lib/api';
 import { 
   Search, Plus, CheckCircle2, 
   Clock, Wallet, Loader2, ArrowDownLeft, FileText, Banknote,
-  Eye, Printer, Edit, Trash2, X
+  Eye, Printer, Edit, Trash2, X, AlertTriangle
 } from 'lucide-react';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from 'recharts';
 
 export const RepaymentsPage = () => {
   const user = useAuthStore((state: any) => state.user);
@@ -17,12 +20,13 @@ export const RepaymentsPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Main Action Modals
-  const [isModalOpen, setIsModalOpen] = useState(false); // Record Payment
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewReceiptModal, setViewReceiptModal] = useState<any | null>(null);
   const [deleteModal, setDeleteModal] = useState<any | null>(null);
   const [editModal, setEditModal] = useState<any | null>(null);
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [formError, setFormError] = useState('');
 
   // Form State
   const [formData, setFormData] = useState({
@@ -59,15 +63,29 @@ export const RepaymentsPage = () => {
     if (user) loadData();
   }, [user]);
 
-  // Handle Form Submission (New Payment)
+  // Handle Form Submission (New Payment with Duplicate Check)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
     setIsProcessing(true);
+    
+    // Feature 1: Prevent duplicate transaction reference codes
+    const isDuplicate = transactions.some(
+      t => t.reference_code?.toLowerCase() === formData.reference_code.trim().toLowerCase()
+    );
+
+    if (isDuplicate) {
+      setFormError(`Transaction code '${formData.reference_code.toUpperCase()}' has already been posted.`);
+      setIsProcessing(false);
+      return;
+    }
+
     try {
       const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
       
       await api.post('/transactions/repayment', {
         ...formData,
+        reference_code: formData.reference_code.toUpperCase().trim(),
         amount: parseFloat(formData.amount),
         description: `Method: ${formData.method}`,
         lender_id: activeLenderId,
@@ -77,7 +95,7 @@ export const RepaymentsPage = () => {
       loadData(); 
       setFormData({ loan_id: '', amount: '', transaction_date: new Date().toISOString().split('T')[0], method: 'M-Pesa', reference_code: '' });
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to record repayment.');
+      setFormError(error.response?.data?.message || 'Failed to record repayment.');
     } finally {
       setIsProcessing(false);
     }
@@ -91,7 +109,7 @@ export const RepaymentsPage = () => {
       setDeleteModal(null);
       loadData();
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to delete transaction. Please ensure backend support is configured.');
+      alert(error.response?.data?.message || 'Failed to delete transaction.');
     } finally {
       setIsProcessing(false);
     }
@@ -107,33 +125,46 @@ export const RepaymentsPage = () => {
   const today = new Date().toISOString().split('T')[0];
   const collectedToday = transactions
     .filter(t => t.transaction_date.startsWith(today))
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const totalTransactions = transactions.length;
+
+  // Feature 3: Daily Collections Chart Data (Last 7 Days)
+  const chartData = useMemo(() => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      
+      const dailyTotal = transactions
+        .filter(t => t.transaction_date.startsWith(dateStr))
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      
+      days.push({
+        name: d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' }),
+        Collections: dailyTotal
+      });
+    }
+    return days;
+  }, [transactions]);
+
+  const formatCurrency = (val: number): string => {
+    if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M`;
+    if (val >= 1000) return `${(val / 1000).toFixed(1)}K`;
+    return val.toString();
+  };
 
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-10">
       
-      {/* Print Styles for the Receipt Modal */}
+      {/* Print Styles */}
       <style>
         {`
           @media print {
-            body * {
-              visibility: hidden;
-            }
-            #printable-receipt, #printable-receipt * {
-              visibility: visible;
-            }
-            #printable-receipt {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
-              box-shadow: none !important;
-            }
-            /* Hide the modal buttons when printing */
-            .no-print {
-              display: none !important;
-            }
+            body * { visibility: hidden; }
+            #printable-receipt, #printable-receipt * { visibility: visible; }
+            #printable-receipt { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; }
+            .no-print { display: none !important; }
           }
         `}
       </style>
@@ -154,7 +185,7 @@ export const RepaymentsPage = () => {
             />
           </div>
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => { setFormError(''); setIsModalOpen(true); }}
             className="flex items-center space-x-2 px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md shadow-emerald-500/20 hover:bg-emerald-700 active:scale-95 transition-all outline-none"
           >
             <Plus size={18} /> <span className="hidden sm:inline">Record Payment</span>
@@ -163,7 +194,7 @@ export const RepaymentsPage = () => {
       </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between border-l-4 border-l-emerald-500 hover:-translate-y-1 transition-transform">
           <div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Collected Today</p>
@@ -186,6 +217,46 @@ export const RepaymentsPage = () => {
             <h3 className="text-2xl font-black text-slate-900">{activeLoans.length}</h3>
           </div>
           <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center"><Clock size={20} /></div>
+        </div>
+      </div>
+
+      {/* Feature 3: Daily Collections Chart */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-8 flex flex-col h-[300px]">
+        <div className="flex justify-between items-center mb-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Collection Trends</h2>
+              <p className="text-xs text-slate-500 font-medium mt-1">Live daily payment influx (Last 7 Days)</p>
+            </div>
+            <div className="flex items-center space-x-2 text-[10px] font-bold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+              <span className="w-2.5 h-2.5 rounded bg-emerald-500"></span> <span>Collections</span>
+            </div>
+        </div>
+        <div className="flex-1 w-full text-xs">
+          {isLoading ? (
+             <div className="w-full h-full flex items-center justify-center bg-slate-50 rounded-2xl animate-pulse">
+                <Loader2 size={24} className="animate-spin text-slate-400" />
+             </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} tickFormatter={formatCurrency} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '12px', border: '1px solid #E2E8F0', fontWeight: 'bold', fontSize: '12px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                  itemStyle={{ color: '#0F172A' }}
+                  formatter={(value: any) => [`KES ${Number(value).toLocaleString()}`, 'Collections']}
+                />
+                <Area type="monotone" dataKey="Collections" stroke="#10B981" strokeWidth={3} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 6, fill: '#10B981', strokeWidth: 0 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -240,7 +311,7 @@ export const RepaymentsPage = () => {
                     </td>
                     <td className="p-5">
                       <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">{tx.description?.replace('Method: ', '') || 'N/A'}</span>
-                      <div className="text-sm font-bold text-slate-700 mt-1">{tx.reference_code}</div>
+                      <div className="text-sm font-bold text-slate-700 mt-1 uppercase">{tx.reference_code}</div>
                     </td>
                     <td className="p-5 text-right">
                       <div className="flex items-center justify-end space-x-1 text-emerald-600">
@@ -248,19 +319,14 @@ export const RepaymentsPage = () => {
                         <span className="font-black text-lg">{Number(tx.amount).toLocaleString()}</span>
                       </div>
                     </td>
-                    
-                    {/* --- ACTIONS COLUMN --- */}
                     <td className="p-5 text-right pr-6">
                       <div className="flex justify-end space-x-2 opacity-80 group-hover:opacity-100 transition-opacity">
-                        
                         <button 
                           onClick={() => setViewReceiptModal(tx)}
                           className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 flex items-center justify-center hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm outline-none" title="View Receipt"
                         >
                           <Eye size={16} />
                         </button>
-                        
-                        {/* Admin-only features */}
                         {isAdmin && (
                           <>
                             <button 
@@ -279,7 +345,6 @@ export const RepaymentsPage = () => {
                         )}
                       </div>
                     </td>
-
                   </tr>
                 ))}
               </tbody>
@@ -309,6 +374,12 @@ export const RepaymentsPage = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="p-8">
+              {formError && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 rounded-xl text-sm font-bold flex items-center">
+                  <AlertTriangle size={18} className="mr-2 shrink-0" /> {formError}
+                </div>
+              )}
+
               <div className="space-y-5">
                 <div>
                   <label className="text-sm font-bold text-slate-700 block mb-1.5">Select Customer / Loan</label>
@@ -406,7 +477,7 @@ export const RepaymentsPage = () => {
             <div className="p-6 bg-slate-50 space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium text-slate-500">Receipt No.</span>
-                <span className="font-mono font-bold">{viewReceiptModal.reference_code}</span>
+                <span className="font-mono font-bold uppercase">{viewReceiptModal.reference_code}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium text-slate-500">Customer</span>

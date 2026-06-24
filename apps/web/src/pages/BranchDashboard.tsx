@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import {
   BarChart, Bar, Line, ComposedChart, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie
+  CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area
 } from 'recharts';
 
 // Helper to calculate current month dates synchronously for initial load
@@ -56,6 +56,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
   const [cashFlowData, setCashFlowData] = useState<any[]>([]);
   const [statusChartData, setStatusChartData] = useState<any[]>([]);
   const [branchChartData, setBranchChartData] = useState<any[]>([]);
+  const [collectionTimelineData, setCollectionTimelineData] = useState<any[]>([]);
 
   // Collections State
   const [activeDueTab, setActiveDueTab] = useState<'yesterday' | 'today' | 'tomorrow'>('today');
@@ -239,7 +240,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       loansIssuedInPeriod
     });
 
-    // --- NEW: Calculate Due Installments ---
     // Helper function to safely format dates to YYYY-MM-DD in the local timezone
     const getLocalYMD = (d: Date) => {
       const y = d.getFullYear();
@@ -275,6 +275,12 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       let isDueYesterday = false;
       let isDueToday = false;
       let isDueTomorrow = false;
+      let cumulativeAmortizationExpected = 0;
+
+      // Calculate total paid on this specific loan
+      const totalPaidOnLoan = currentTransactions
+        .filter((t: any) => t.loan_id === loan.id && t.type === 'REPAYMENT')
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
       // Project all expected due dates for the length of the loan
       for (let i = 1; i <= term; i++) {
@@ -289,14 +295,41 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
 
         const expectedStr = getLocalYMD(expectedDueDate);
 
+        // If the expected due date is in the past or is today, add it to the expected total
+        if (expectedDueDate.getTime() <= now.getTime() || expectedStr === todayStr) {
+          cumulativeAmortizationExpected += installmentAmount;
+        }
+
         if (expectedStr === yesterdayStr) isDueYesterday = true;
         if (expectedStr === todayStr) isDueToday = true;
         if (expectedStr === tomorrowStr) isDueTomorrow = true;
       }
 
-      if (isDueYesterday) dueYesterday.push({ ...loan, installmentAmount });
-      if (isDueToday) dueToday.push({ ...loan, installmentAmount });
-      if (isDueTomorrow) dueTomorrow.push({ ...loan, installmentAmount });
+      const isFullyPaidUpToDate = totalPaidOnLoan >= cumulativeAmortizationExpected;
+
+      // Feature 4: Arrears detection profile for accounts running without active payments over a 7-day range
+      const paidThisWeek = currentTransactions.some((t: any) => {
+         const tDate = new Date(t.transaction_date);
+         const diffTime = now.getTime() - tDate.getTime();
+         const daysDiff = diffTime / (1000 * 3600 * 24);
+         return t.loan_id === loan.id && t.type === 'REPAYMENT' && daysDiff <= 7;
+      });
+
+      const processedLoanData = { 
+         ...loan, 
+         installmentAmount, 
+         inArrears: !paidThisWeek && !isFullyPaidUpToDate
+      };
+
+      // Automatically omit customer records if they have paid up to or exceeding the expected amount
+      if (isDueYesterday && !isFullyPaidUpToDate) dueYesterday.push(processedLoanData);
+      if (isDueToday && !isFullyPaidUpToDate) dueToday.push(processedLoanData);
+      
+      // For tomorrow, check if they've pre-paid tomorrow's portion as well
+      if (isDueTomorrow) {
+         const isPaidIncludingTomorrow = totalPaidOnLoan >= (cumulativeAmortizationExpected + installmentAmount);
+         if (!isPaidIncludingTomorrow) dueTomorrow.push(processedLoanData);
+      }
     });
 
     setDueCollections({ yesterday: dueYesterday, today: dueToday, tomorrow: dueTomorrow });
@@ -329,6 +362,24 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
         clients: branchCounts[branch]
       })).sort((a, b) => b.clients - a.clients)
     );
+
+    // --- Feature 3: Auto-Updating Daily Collection Influx Timeline (Last 7 Days) ---
+    const timelineDataArray = [];
+    for (let i = 6; i >= 0; i--) {
+      const dayOffset = new Date();
+      dayOffset.setDate(dayOffset.getDate() - i);
+      const matchedString = dayOffset.toISOString().split('T')[0];
+      
+      const dayTotal = currentTransactions
+        .filter(t => t.type === 'REPAYMENT' && t.transaction_date?.startsWith(matchedString))
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      
+      timelineDataArray.push({
+        dayLabel: dayOffset.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' }),
+        Amount: dayTotal
+      });
+    }
+    setCollectionTimelineData(timelineDataArray);
 
     // --- 5. DYNAMIC CASH FLOW CHART ---
     const daysDiff = (endObj.getTime() - startObj.getTime()) / (1000 * 3600 * 24);
@@ -400,9 +451,9 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
           <Icon size={20} className={`lg:w-6 lg:h-6 ${colorClass}`} />
         </div>
       </div>
-      <p className="text-[10px] lg:text-xs font-semibold text-slate-500 flex items-center line-clamp-1">
+      <div className="text-[10px] lg:text-xs font-semibold text-slate-500 flex items-center line-clamp-1">
         {subtext}
-      </p>
+      </div>
     </div>
   );
 
@@ -632,6 +683,46 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
         />
       </div>
 
+      {/* --- Feature 3: Live Daily Payment Collection Timeline Chart --- */}
+      <div className="bg-white p-4 lg:p-6 rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm flex flex-col h-[260px] lg:h-[300px]">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-sm lg:text-base font-bold text-slate-900">Collection Processing Timeline</h2>
+            <p className="text-[10px] lg:text-xs text-slate-500 font-medium mt-0.5">Real-time daily payment ingestion metrics over the past 7 business days</p>
+          </div>
+          <div className="flex items-center space-x-1.5 text-[9px] lg:text-[10px] font-black uppercase tracking-widest text-slate-600 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-100">
+            <span className="w-2 h-2 rounded bg-emerald-500"></span> <span>Ingested Payments</span>
+          </div>
+        </div>
+        <div className="flex-1 w-full text-xs">
+          {isFetching || isLoading ? (
+            <div className="w-full h-full flex items-center justify-center bg-slate-50 rounded-2xl animate-pulse">
+              <Loader2 size={24} className="animate-spin text-slate-400" />
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={collectionTimelineData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="dashboardAmountGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="dayLabel" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} dy={5} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '12px', border: '1px solid #E2E8F0', fontWeight: 'bold', fontSize: '11px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}
+                  itemStyle={{ color: '#0F172A' }}
+                  formatter={(value: any) => [`KES ${Number(value).toLocaleString()}`, 'Repayments Ingested']}
+                />
+                <Area type="monotone" dataKey="Amount" stroke="#10B981" strokeWidth={2.5} fillOpacity={1} fill="url(#dashboardAmountGrad)" activeDot={{ r: 5, fill: '#10B981', strokeWidth: 0 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
       {/* --- UPCOMING COLLECTIONS COMPONENT --- */}
       <div className="bg-white rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col mt-4 lg:mt-6">
         <div className="p-4 lg:p-6 border-b border-slate-200 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 lg:gap-4">
@@ -690,8 +781,20 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                 currentDueList.map(loan => (
                   <tr key={loan.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-3 lg:p-4 pl-4 lg:pl-6">
-                      <p className="font-bold text-slate-900 text-xs lg:text-sm mb-0.5">{loan.borrower?.first_name} {loan.borrower?.last_name}</p>
-                      <p className="text-[9px] lg:text-[10px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
+                      <div className="flex items-center space-x-2">
+                        <div>
+                          <p className="font-bold text-slate-900 text-xs lg:text-sm mb-0.5">
+                            {loan.borrower?.first_name} {loan.borrower?.last_name}
+                          </p>
+                          <p className="text-[9px] lg:text-[10px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
+                        </div>
+                        {/* Feature 4: Display Arrears badge inside table line items */}
+                        {loan.inArrears && (
+                          <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase tracking-wider border border-red-200 px-1.5 py-0.5 rounded animate-pulse">
+                            Arrears
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3 lg:p-4">
                       <p className="text-[11px] lg:text-xs font-bold text-slate-700 flex items-center"><Phone size={10} className="lg:w-3 lg:h-3 mr-1 lg:mr-1.5 text-slate-400" /> {loan.borrower?.phone_number}</p>
@@ -705,7 +808,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                       </p>
                     </td>
                     <td className="p-3 lg:p-4 text-right">
-                      <p className={`text-xs lg:text-sm font-black ${activeDueTab === 'yesterday' ? 'text-red-600' : 'text-slate-900'}`}>
+                      <p className={`text-xs lg:text-sm font-black ${activeDueTab === 'yesterday' || loan.inArrears ? 'text-red-600' : 'text-slate-900'}`}>
                         KES {formatCurrency(loan.installmentAmount)}
                       </p>
                     </td>

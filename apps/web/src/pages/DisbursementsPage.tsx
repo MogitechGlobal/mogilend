@@ -122,9 +122,13 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
     setViewModal(loan);
   };
 
+  // --- UPDATED: Pass target context through local storage before redirecting ---
   const openReceivePayment = (loan: any) => {
     setViewModal(null); 
-    setReceivePaymentModal(loan); 
+    if (onNavigate) {
+       localStorage.setItem('autoOpenRepayment', loan.id);
+       onNavigate('repayments');
+    }
   };
 
   const StatusBadge = ({ status }: { status: string }) => {
@@ -596,8 +600,13 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
                 Close
               </button>
 
+              {/* --- UPDATED: Pass target context through local storage before redirecting --- */}
               <button 
-                onClick={() => { setViewModal(null); onNavigate && onNavigate('borrowers'); }}
+                onClick={() => { 
+                  setViewModal(null); 
+                  localStorage.setItem('autoOpenBorrower', viewModal.borrower_id);
+                  if(onNavigate) onNavigate('borrowers'); 
+                }}
                 className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors flex items-center outline-none shadow-sm"
               >
                 <User size={18} className="mr-2 text-blue-500" /> View Profile
@@ -632,95 +641,6 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
               )}
 
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- RECEIVE PAYMENT MODAL --- */}
-      {receivePaymentModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isProcessing && setReceivePaymentModal(null)}></div>
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg relative z-10 overflow-hidden animate-fade-in border border-slate-200">
-            
-            <div className="bg-[#0B1121] p-6 text-white flex justify-between items-center">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center border border-emerald-500/30">
-                  <Banknote size={20} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg leading-tight">Receive Payment</h3>
-                  <p className="text-emerald-400/80 text-xs font-medium">Recording payment for {receivePaymentModal.borrower?.first_name}</p>
-                </div>
-              </div>
-            </div>
-
-            <form onSubmit={handleReceivePayment} className="p-8">
-              <div className="space-y-5">
-                
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center">
-                  <div>
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block mb-1">Target Account</span>
-                    <span className="font-bold text-slate-900">LN-#{receivePaymentModal.id.substring(0, 8)}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-emerald-700 uppercase tracking-widest block mb-1">Outstanding</span>
-                    <span className="font-black text-emerald-700">KES {Number(receivePaymentModal.outstanding_balance).toLocaleString()}</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-bold text-slate-700 block mb-1.5">Amount Received</label>
-                    <input 
-                      type="number" required step="0.01" min="1" max={receivePaymentModal.outstanding_balance}
-                      value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})}
-                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono font-bold text-slate-900"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-bold text-slate-700 block mb-1.5">Payment Date</label>
-                    <input 
-                      type="date" required
-                      value={paymentForm.transaction_date} onChange={e => setPaymentForm({...paymentForm, transaction_date: e.target.value})}
-                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-semibold text-slate-700"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-bold text-slate-700 block mb-1.5">Method</label>
-                    <select 
-                      required
-                      value={paymentForm.method} onChange={e => setPaymentForm({...paymentForm, method: e.target.value})}
-                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-semibold text-slate-700"
-                    >
-                      <option value="M-Pesa">M-Pesa</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
-                      <option value="Cash">Cash</option>
-                      <option value="Cheque">Cheque</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-bold text-slate-700 block mb-1.5">Reference No.</label>
-                    <input 
-                      type="text" required
-                      value={paymentForm.reference_code} onChange={e => setPaymentForm({...paymentForm, reference_code: e.target.value})}
-                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-semibold text-slate-900 uppercase"
-                      placeholder="e.g. QFH38291"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex space-x-3 mt-8">
-                <button type="button" onClick={() => setReceivePaymentModal(null)} disabled={isProcessing} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors disabled:opacity-50 outline-none">Cancel</button>
-                <button type="submit" disabled={isProcessing} className="flex-[2] flex items-center justify-center space-x-2 bg-emerald-600 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-emerald-500/30 hover:bg-emerald-700 active:scale-[0.98] transition-all disabled:opacity-80 outline-none">
-                  {isProcessing ? <><Loader2 size={18} className="animate-spin" /> <span>Recording...</span></> : <><CheckCircle2 size={18} /><span>Confirm Payment</span></>}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

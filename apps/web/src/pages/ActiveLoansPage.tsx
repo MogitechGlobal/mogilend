@@ -31,6 +31,7 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
   // --- RAW DATA STATE ---
   const [isFetching, setIsFetching] = useState(true);
   const [rawLoans, setRawLoans] = useState<any[]>([]);
+  const [rawTransactions, setRawTransactions] = useState<any[]>([]);
   const [branchesList, setBranchesList] = useState<any[]>([]);
   const [officersList, setOfficersList] = useState<any[]>([]);
   
@@ -95,16 +96,18 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
         const activeLenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
         const queryParams = `?lender_id=${activeLenderId}`;
 
-        const [loansRes, branchesRes, usersRes] = await Promise.all([
+        const [loansRes, branchesRes, usersRes, transRes] = await Promise.all([
           api.get(`/loans${queryParams}`),
           api.get(`/branches${queryParams}`).catch(() => ({ data: [] })),
-          api.get(`/users${queryParams}`).catch(() => ({ data: [] }))
+          api.get(`/users${queryParams}`).catch(() => ({ data: [] })),
+          api.get(`/transactions?type=REPAYMENT&lender_id=${activeLenderId}`).catch(() => ({ data: [] }))
         ]);
 
         const fetchedLoans = Array.isArray(loansRes.data) ? loansRes.data : (loansRes.data?.data || []);
         const fetchedUsers = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || []);
 
         setRawLoans(fetchedLoans);
+        setRawTransactions(Array.isArray(transRes.data) ? transRes.data : []);
         setBranchesList(branchesRes.data || []);
         
         const staff = fetchedUsers.filter((u: any) => 
@@ -259,6 +262,12 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
       let isDueYesterday = false;
       let isDueToday = false;
       let isDueTomorrow = false;
+      let cumulativeAmortizationExpected = 0;
+
+      // Calculate total paid on this specific loan
+      const totalPaidOnLoan = rawTransactions
+        .filter((t: any) => t.loan_id === loan.id && t.type === 'REPAYMENT')
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
       // Project all expected due dates for the length of the loan
       for (let i = 1; i <= term; i++) {
@@ -274,19 +283,41 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
 
         const expectedStr = getLocalYMD(expectedDueDate);
         
+        if (expectedDueDate.getTime() <= now.getTime() || expectedStr === todayStr) {
+          cumulativeAmortizationExpected += installmentAmount;
+        }
+
         if (expectedStr === yesterdayStr) isDueYesterday = true;
         if (expectedStr === todayStr) isDueToday = true;
         if (expectedStr === tomorrowStr) isDueTomorrow = true;
       }
 
-      if (isDueYesterday) dueYesterday.push({ ...loan, installmentAmount });
-      if (isDueToday) dueToday.push({ ...loan, installmentAmount });
-      if (isDueTomorrow) dueTomorrow.push({ ...loan, installmentAmount });
+      const isFullyPaidUpToDate = totalPaidOnLoan >= cumulativeAmortizationExpected;
+
+      // Arrears check for the week
+      const paidThisWeek = rawTransactions.some((t: any) => {
+         const tDate = new Date(t.transaction_date);
+         const daysDiff = (now.getTime() - tDate.getTime()) / (1000 * 3600 * 24);
+         return t.loan_id === loan.id && t.type === 'REPAYMENT' && daysDiff <= 7;
+      });
+
+      const processedLoanData = { 
+         ...loan, 
+         installmentAmount, 
+         inArrears: !paidThisWeek && !isFullyPaidUpToDate
+      };
+
+      if (isDueYesterday && !isFullyPaidUpToDate) dueYesterday.push(processedLoanData);
+      if (isDueToday && !isFullyPaidUpToDate) dueToday.push(processedLoanData);
+      if (isDueTomorrow) {
+         const isPaidIncludingTomorrow = totalPaidOnLoan >= (cumulativeAmortizationExpected + installmentAmount);
+         if (!isPaidIncludingTomorrow) dueTomorrow.push(processedLoanData);
+      }
     });
 
     setDueCollections({ yesterday: dueYesterday, today: dueToday, tomorrow: dueTomorrow });
 
-  }, [rawLoans, appliedFilters.branch, appliedFilters.officer, isFetching, user]);
+  }, [rawLoans, rawTransactions, appliedFilters.branch, appliedFilters.officer, isFetching, user]);
 
   const availableOfficers = officersList.filter(o => 
     filters.branch === 'all' ? true : o.branch_id === filters.branch || !o.branch_id
@@ -466,8 +497,17 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
                 currentDueList.map(loan => (
                   <tr key={loan.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-4 pl-6">
-                      <p className="font-bold text-slate-900 text-sm mb-0.5">{loan.borrower?.first_name} {loan.borrower?.last_name}</p>
-                      <p className="text-[10px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
+                      <div className="flex items-center space-x-2">
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm mb-0.5">{loan.borrower?.first_name} {loan.borrower?.last_name}</p>
+                          <p className="text-[10px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
+                        </div>
+                        {loan.inArrears && (
+                          <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase tracking-wider border border-red-200 px-1.5 py-0.5 rounded animate-pulse">
+                            Arrears
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4">
                       <p className="text-xs font-bold text-slate-700 flex items-center"><Phone size={12} className="mr-1.5 text-slate-400" /> {loan.borrower?.phone_number}</p>
@@ -481,7 +521,7 @@ export const ActiveLoansPage = ({ onNavigate }: { onNavigate: (path: any) => voi
                       </p>
                     </td>
                     <td className="p-4 text-right">
-                      <p className={`text-sm font-black ${activeDueTab === 'yesterday' ? 'text-red-600' : 'text-slate-900'}`}>
+                      <p className={`text-sm font-black ${activeDueTab === 'yesterday' || loan.inArrears ? 'text-red-600' : 'text-slate-900'}`}>
                         KES {formatCurrency(loan.installmentAmount)}
                       </p>
                     </td>
