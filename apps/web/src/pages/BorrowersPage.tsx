@@ -7,7 +7,7 @@ import {
   Loader2, CheckCircle2, FileUp, Activity, X,
   Briefcase, Filter, Building2, CalendarDays,
   Banknote, Trash2, Image as ImageIcon,
-  Download
+  Download, TrendingUp, Receipt
 } from 'lucide-react';
 
 export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => void }) => {
@@ -16,6 +16,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
   const [borrowers, setBorrowers] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
+  const [rawTransactions, setRawTransactions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'VERIFIED' | 'PENDING' | 'REJECTED'>('ALL');
@@ -59,7 +60,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
   // Modal States
   const [viewModal, setViewModal] = useState<any | null>(null);
-  const [detailsTab, setDetailsTab] = useState<'overview' | 'loans' | 'documents' | 'history' | 'kin' | 'guarantors'>('overview');
+  const [detailsTab, setDetailsTab] = useState<'overview' | 'loans' | 'documents' | 'repayments' | 'kin' | 'guarantors'>('overview');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModal, setEditModal] = useState<any | null>(null);
   const [deleteModal, setDeleteModal] = useState<any | null>(null);
@@ -117,12 +118,14 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     setIsLoading(true);
     try {
       const lenderId = user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e';
-      const [borrowersRes, branchesRes] = await Promise.all([
+      const [borrowersRes, branchesRes, transRes] = await Promise.all([
         api.get(buildFetchQuery()),
-        api.get(`/branches?lender_id=${lenderId}`)
+        api.get(`/branches?lender_id=${lenderId}`),
+        api.get(`/transactions?type=REPAYMENT&lender_id=${lenderId}`).catch(() => ({ data: [] }))
       ]);
       setBorrowers(borrowersRes.data);
       setBranches(branchesRes.data);
+      setRawTransactions(Array.isArray(transRes.data) ? transRes.data : []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -138,6 +141,19 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     if (viewModal) {
       const updatedBorrower = borrowers.find(b => b.id === viewModal.id);
       if (updatedBorrower) setViewModal(updatedBorrower);
+    }
+  }, [borrowers]);
+
+  // --- NEW: Auto-open profile from external page redirects ---
+  useEffect(() => {
+    const autoOpenId = localStorage.getItem('autoOpenBorrower');
+    if (autoOpenId && borrowers.length > 0) {
+      const targetBorrower = borrowers.find(b => b.id === autoOpenId);
+      if (targetBorrower) {
+        setDetailsTab('overview');
+        setViewModal(targetBorrower);
+        localStorage.removeItem('autoOpenBorrower');
+      }
     }
   }, [borrowers]);
 
@@ -170,7 +186,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
         ...formData,
         email: formData.email.trim() === '' ? undefined : formData.email.trim(),
         lender_id: user?.lender_id || '5b1a0b35-2a91-461e-ba7b-c2d1301ea98e',
-        user_id: user?.id // ATTACH LOAN OFFICER TO CUSTOMER
+        user_id: user?.id 
       };
       await api.post('/borrowers', payload);
       setCreateModalOpen(false);
@@ -214,7 +230,6 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     }
   };
 
-  // --- REPAIRED: Network Timeout for Single Document Upload ---
   const handleDocumentUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadForm.file || !viewModal) return;
@@ -227,7 +242,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
       await api.post(`/borrowers/${viewModal.id}/documents`, formPayload, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000 // 2 minutes specific timeout for large file processing
+        timeout: 120000 
       });
 
       setUploadForm({ type: 'NATIONAL_ID_FRONT', file: null });
@@ -277,7 +292,6 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     if (updatedBorrower) setViewModal(updatedBorrower);
   };
 
-  // --- REPAIRED: Next Of Kin Upload (Added Timeout & Data Cleaning) ---
   const handleEditKinClick = () => {
     setKinForm({
       full_name: viewModal.next_of_kin.full_name,
@@ -296,7 +310,6 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     setIsUploading(true);
     try {
       const formPayload = new FormData();
-      // Drop empty fields to avoid backend validation errors
       Object.entries(kinForm).forEach(([key, value]) => {
         if (value?.trim() !== '') formPayload.append(key, value as string);
       });
@@ -307,7 +320,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
       await api.post(`/borrowers/${viewModal.id}/next-of-kin`, formPayload, { 
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000 // 2 Minutes to allow Cloudinary sufficient time
+        timeout: 120000 
       });
       
       setSelectedKinIdDoc(null);
@@ -333,7 +346,6 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     } catch (error) { alert('Failed to delete Next of Kin.'); }
   };
 
-  // --- REPAIRED: Guarantor Upload (Added Timeout & Data Cleaning) ---
   const handleEditGuarantorClick = (g: any) => {
     setEditingGuarantorId(g.id);
     setGuarForm({ full_name: g.full_name, relationship: g.relationship, phone_number: g.phone_number, id_number: g.id_number || '' });
@@ -347,7 +359,6 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
     setIsUploading(true);
     try {
       const formPayload = new FormData();
-      // Drop empty strings so Prisma/backend doesn't crash validating empty formats
       Object.entries(guarForm).forEach(([key, value]) => {
         if (value?.trim() !== '') formPayload.append(key, value as string);
       });
@@ -358,7 +369,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
 
       const requestConfig = { 
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000 // Override Axios defaults. Allow 2 full minutes for heavy operations.
+        timeout: 120000 
       };
 
       if (editingGuarantorId) {
@@ -391,6 +402,12 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
       await refreshViewModal();
     } catch (error) { alert('Failed to delete Guarantor.'); }
   };
+
+  // Compile specific transactions for this borrower across all their loans
+  const borrowerLoanIds = viewModal?.loans?.map((l: any) => l.id) || [];
+  const borrowerTx = rawTransactions
+    .filter(t => borrowerLoanIds.includes(t.loan_id))
+    .sort((a,b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
 
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-10">
@@ -661,10 +678,10 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
             <div className="flex px-4 sm:px-8 bg-white border-b border-slate-200 shrink-0 overflow-x-auto custom-scrollbar shadow-sm z-10">
               <button onClick={() => setDetailsTab('overview')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Profile Overview</button>
               <button onClick={() => setDetailsTab('loans')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'loans' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Loan History <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.loans?.length || 0}</span></button>
+              <button onClick={() => setDetailsTab('repayments')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'repayments' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Repayment History</button>
               <button onClick={() => setDetailsTab('documents')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap flex items-center ${detailsTab === 'documents' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>KYC Documents <span className="ml-1.5 sm:ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs">{viewModal.documents?.length || 0}</span></button>
               <button onClick={() => setDetailsTab('kin')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'kin' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Next of Kin</button>
-              <button onClick={() => setDetailsTab('guarantors')} className={`py-3 sm:py-4 px-3 sm:px-4 mr-2 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'guarantors' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Guarantors</button>
-              <button onClick={() => setDetailsTab('history')} className={`py-3 sm:py-4 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Interactions & Alerts</button>
+              <button onClick={() => setDetailsTab('guarantors')} className={`py-3 sm:py-4 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition-colors outline-none whitespace-nowrap ${detailsTab === 'guarantors' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>Guarantors</button>
             </div>
 
             {/* Modal Body */}
@@ -763,7 +780,56 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                 </div>
               )}
 
-              {/* TAB 3: KYC DOCUMENTS */}
+              {/* TAB 3: ALL REPAYMENT HISTORY */}
+              {detailsTab === 'repayments' && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden min-h-[300px] flex flex-col">
+                  {borrowerTx.length > 0 ? (
+                    <div className="overflow-x-auto w-full custom-scrollbar">
+                      <table className="w-full text-left border-collapse min-w-[700px]">
+                         <thead>
+                           <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-widest font-black">
+                             <th className="p-4 pl-6">Date</th>
+                             <th className="p-4">Reference No.</th>
+                             <th className="p-4">Method</th>
+                             <th className="p-4">Loan Reference</th>
+                             <th className="p-4 text-right pr-6">Amount (KES)</th>
+                           </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-100">
+                           {borrowerTx.map((tx: any) => (
+                             <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
+                               <td className="p-4 pl-6">
+                                 <div className="text-sm font-bold text-slate-700">{new Date(tx.transaction_date).toLocaleDateString()}</div>
+                                 <div className="text-xs text-slate-400 font-medium">{new Date(tx.transaction_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                               </td>
+                               <td className="p-4 text-sm font-mono font-bold text-slate-700">{tx.reference_code || '-'}</td>
+                               <td className="p-4">
+                                 <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                                   {tx.description?.replace('Method: ', '') || tx.type}
+                                 </span>
+                               </td>
+                               <td className="p-4 text-xs font-mono text-slate-500">
+                                 #{tx.loan_id?.substring(0, 8)}
+                               </td>
+                               <td className="p-4 pr-6 text-sm font-black text-emerald-600 text-right flex items-center justify-end">
+                                 <TrendingUp size={14} className="mr-1.5" /> {Number(tx.amount).toLocaleString()}
+                               </td>
+                             </tr>
+                           ))}
+                         </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center flex-1 py-16 text-center">
+                       <Receipt size={32} className="mx-auto text-slate-300 mb-3" />
+                       <span className="font-bold text-lg text-slate-800 block">No repayment records found</span>
+                       <span className="text-sm text-slate-500 mt-1">Payments made by this customer across any of their facilities will appear here.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: KYC DOCUMENTS */}
               {detailsTab === 'documents' && (
                 <div className="bg-white p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm min-h-[300px] flex flex-col">
 
@@ -815,7 +881,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                 </div>
               )}
 
-              {/* TAB: NEXT OF KIN */}
+              {/* TAB 5: NEXT OF KIN */}
               {detailsTab === 'kin' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm overflow-y-auto max-h-[600px] custom-scrollbar">
@@ -908,7 +974,7 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                 </div>
               )}
 
-              {/* TAB: GUARANTORS (MULTIPLE ALLOWED WITH MULTIPLE PHOTOS EACH) */}
+              {/* TAB 6: GUARANTORS (MULTIPLE ALLOWED WITH MULTIPLE PHOTOS EACH) */}
               {detailsTab === 'guarantors' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Existing Guarantors List */}
@@ -1001,17 +1067,6 @@ export const BorrowersPage = ({ onNavigate }: { onNavigate?: (path: string) => v
                       </button>
                     </div>
                   </form>
-                </div>
-              )}
-
-              {/* TAB 4: INTERACTION HISTORY */}
-              {detailsTab === 'history' && (
-                <div className="bg-white p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm text-center min-h-[300px] flex flex-col items-center justify-center">
-                  <div className="py-10">
-                    <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4"><Activity size={28} /></div>
-                    <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">No Recorded Interactions</h3>
-                    <p className="text-slate-500 text-xs sm:text-sm">Calls, emails, SMS alerts, and HQ approvals will be tracked here.</p>
-                  </div>
                 </div>
               )}
 

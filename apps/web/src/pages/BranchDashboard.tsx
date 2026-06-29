@@ -4,7 +4,7 @@ import useAuthStore from '../store/authStore';
 import {
   Users, TrendingUp, CreditCard, Clock,
   ArrowRight, AlertTriangle, Phone,
-  Activity, Wallet, CheckCircle, FileText, MapPin, User, Calendar, ChevronDown, Briefcase, Filter, Loader2, Megaphone, BarChart3
+  Activity, Wallet, CheckCircle, FileText, MapPin, User, Calendar, ChevronDown, Briefcase, Filter, Loader2, Megaphone, BarChart3, ShieldCheck
 } from 'lucide-react';
 import {
   BarChart, Bar, Line, ComposedChart, XAxis, YAxis,
@@ -52,6 +52,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     parValue: 0,
     parPercentage: 0,
     loansIssuedInPeriod: 0,
+    performingLoanBook: 0,
   });
   const [cashFlowData, setCashFlowData] = useState<any[]>([]);
   const [statusChartData, setStatusChartData] = useState<any[]>([]);
@@ -225,6 +226,12 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     const parValue = defaultedLoans.reduce((sum: number, l: any) => sum + (Number(l.outstanding_balance) || 0), 0);
     const parPercentage = activePortfolio > 0 ? (parValue / activePortfolio) * 100 : 0;
 
+    const strictlyActiveLoansValue = portfolioLoans
+      .filter((l: any) => l.status === 'DISBURSED')
+      .reduce((sum: number, l: any) => sum + (Number(l.outstanding_balance) || 0), 0);
+    
+    const performingLoanBook = strictlyActiveLoansValue + (parValue * 0.22);
+
     const collectedInPeriod = periodTransactions
       .filter((t: any) => t.type === 'REPAYMENT')
       .reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
@@ -237,10 +244,10 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       collectedInPeriod,
       parValue,
       parPercentage,
-      loansIssuedInPeriod
+      loansIssuedInPeriod,
+      performingLoanBook 
     });
 
-    // Helper function to safely format dates to YYYY-MM-DD in the local timezone
     const getLocalYMD = (d: Date) => {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -264,7 +271,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     const dueTomorrow: any[] = [];
 
     currentLoans.forEach((loan: any) => {
-      // Only check schedule for active loans
       if (loan.status !== 'DISBURSED' || !loan.disbursed_at || loan.outstanding_balance <= 0) return;
       
       const cycle = String(loan.loan_product?.repayment_cycle || 'MONTHLY').toUpperCase();
@@ -277,12 +283,10 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       let isDueTomorrow = false;
       let cumulativeAmortizationExpected = 0;
 
-      // Calculate total paid on this specific loan
       const totalPaidOnLoan = currentTransactions
         .filter((t: any) => t.loan_id === loan.id && t.type === 'REPAYMENT')
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
-      // Project all expected due dates for the length of the loan
       for (let i = 1; i <= term; i++) {
         const expectedDueDate = new Date(disbursedDate);
         if (cycle === 'DAILY') {
@@ -295,7 +299,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
 
         const expectedStr = getLocalYMD(expectedDueDate);
 
-        // If the expected due date is in the past or is today, add it to the expected total
         if (expectedDueDate.getTime() <= now.getTime() || expectedStr === todayStr) {
           cumulativeAmortizationExpected += installmentAmount;
         }
@@ -307,7 +310,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
 
       const isFullyPaidUpToDate = totalPaidOnLoan >= cumulativeAmortizationExpected;
 
-      // Feature 4: Arrears detection profile for accounts running without active payments over a 7-day range
       const paidThisWeek = currentTransactions.some((t: any) => {
          const tDate = new Date(t.transaction_date);
          const diffTime = now.getTime() - tDate.getTime();
@@ -321,11 +323,9 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
          inArrears: !paidThisWeek && !isFullyPaidUpToDate
       };
 
-      // Automatically omit customer records if they have paid up to or exceeding the expected amount
       if (isDueYesterday && !isFullyPaidUpToDate) dueYesterday.push(processedLoanData);
       if (isDueToday && !isFullyPaidUpToDate) dueToday.push(processedLoanData);
       
-      // For tomorrow, check if they've pre-paid tomorrow's portion as well
       if (isDueTomorrow) {
          const isPaidIncludingTomorrow = totalPaidOnLoan >= (cumulativeAmortizationExpected + installmentAmount);
          if (!isPaidIncludingTomorrow) dueTomorrow.push(processedLoanData);
@@ -333,7 +333,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     });
 
     setDueCollections({ yesterday: dueYesterday, today: dueToday, tomorrow: dueTomorrow });
-
 
     // --- 4. GENERATE CHART DATA ---
     const statusCounts = portfolioLoans.reduce((acc: any, loan: any) => {
@@ -435,23 +434,24 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
   }, [appliedFilters, rawLoans, rawBorrowers, rawTransactions, isFetching, user, branchesList]); 
 
   // --- REUSABLE COMPONENTS ---
+  // UPDATED StatCard: Reduced font sizes and margins to prevent truncation
   const StatCard = ({ title, value, subtext, icon: Icon, colorClass, highlightClass }: any) => (
-    <div className="bg-white p-4 lg:p-5 xl:p-6 rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm hover:-translate-y-1 hover:shadow-lg transition-all duration-300 relative overflow-hidden group cursor-pointer flex flex-col justify-between">
-      <div className={`absolute left-0 top-6 bottom-6 w-1 rounded-r-full ${highlightClass}`}></div>
-      <div className="flex justify-between items-start mb-2 lg:mb-4">
-        <div className="flex-1 overflow-hidden pr-2">
-          <h3 className="text-slate-500 text-[9px] lg:text-[10px] font-black uppercase tracking-widest mb-1.5 line-clamp-1">{title}</h3>
+    <div className="bg-white p-3 lg:p-4 rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm hover:-translate-y-1 hover:shadow-lg transition-all duration-300 relative overflow-hidden group cursor-pointer flex flex-col justify-between min-h-[90px]">
+      <div className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${highlightClass}`}></div>
+      <div className="flex justify-between items-start mb-1 lg:mb-2 pl-2">
+        <div className="flex-1 overflow-hidden pr-1">
+          <h3 className="text-slate-500 text-[8px] lg:text-[9px] font-black uppercase tracking-widest mb-1 line-clamp-1">{title}</h3>
           {isLoading ? (
-            <div className="h-6 lg:h-8 bg-slate-100 rounded-lg w-24 lg:w-32 animate-pulse"></div>
+            <div className="h-4 lg:h-6 bg-slate-100 rounded-lg w-16 lg:w-24 animate-pulse"></div>
           ) : (
-            <p className={`text-xl lg:text-2xl xl:text-[22px] font-black tracking-tight ${colorClass} truncate`}>{value}</p>
+            <p className={`text-sm sm:text-base lg:text-lg font-black tracking-tight ${colorClass} truncate leading-none`}>{value}</p>
           )}
         </div>
-        <div className={`p-2.5 lg:p-3 rounded-xl lg:rounded-2xl shrink-0 ${highlightClass} bg-opacity-10 text-opacity-100`}>
-          <Icon size={20} className={`lg:w-6 lg:h-6 ${colorClass}`} />
+        <div className={`p-1.5 lg:p-2 rounded-lg lg:rounded-xl shrink-0 ${highlightClass} bg-opacity-10 text-opacity-100`}>
+          <Icon size={16} className={`lg:w-5 lg:h-5 ${colorClass}`} />
         </div>
       </div>
-      <div className="text-[10px] lg:text-xs font-semibold text-slate-500 flex items-center line-clamp-1">
+      <div className="text-[9px] lg:text-[10px] font-semibold text-slate-500 flex items-center line-clamp-1 pl-2">
         {subtext}
       </div>
     </div>
@@ -460,12 +460,12 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
   const QuickAction = ({ title, icon: Icon, colorClass, onClick }: any) => (
     <button
       onClick={onClick}
-      className="bg-white border border-slate-200 p-3 lg:p-4 rounded-xl lg:rounded-2xl flex items-center space-x-3 lg:space-x-4 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-blue-500/20 w-full text-left group"
+      className="bg-white border border-slate-200 p-2.5 lg:p-3 rounded-lg lg:rounded-xl flex items-center space-x-2.5 lg:space-x-3 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-blue-500/20 w-full text-left group"
     >
-      <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-lg lg:rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}>
-        <Icon size={18} className="lg:w-5 lg:h-5" />
+      <div className={`w-8 h-8 lg:w-10 lg:h-10 rounded-md lg:rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
+        <Icon size={16} className="lg:w-4 lg:h-4" />
       </div>
-      <span className="font-bold text-xs lg:text-sm text-slate-700 group-hover:text-slate-900 line-clamp-1">{title}</span>
+      <span className="font-bold text-[11px] lg:text-xs text-slate-700 group-hover:text-slate-900 line-clamp-1">{title}</span>
     </button>
   );
 
@@ -520,17 +520,17 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
   const currentDueList = dueCollections[activeDueTab];
 
   return (
-    <div className="animate-fade-in space-y-4 lg:space-y-6 max-w-7xl mx-auto pb-10">
+    <div className="animate-fade-in space-y-4 lg:space-y-5 max-w-7xl mx-auto pb-8">
 
       {/* Header & Live Data Badge */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end pb-2 gap-3 lg:gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end pb-1 gap-2 lg:gap-3">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">{getDashboardTitle()}</h1>
-          <div className="flex items-center space-x-2 lg:space-x-3 mt-1.5 lg:mt-2">
-            <span className="text-slate-500 text-xs lg:text-sm font-medium">Financial Health Overview</span>
+          <h1 className="text-xl lg:text-2xl font-black text-slate-900 tracking-tight">{getDashboardTitle()}</h1>
+          <div className="flex items-center space-x-2 lg:space-x-3 mt-1 lg:mt-1.5">
+            <span className="text-slate-500 text-[11px] lg:text-xs font-medium">Financial Health Overview</span>
             <span className="text-slate-300">|</span>
-            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] lg:text-[10px] font-black uppercase tracking-widest px-2 lg:px-2.5 py-0.5 lg:py-1 rounded-md flex items-center shadow-sm">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
+            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[8px] lg:text-[9px] font-black uppercase tracking-widest px-1.5 lg:px-2 py-0.5 rounded flex items-center shadow-sm">
+              <span className="w-1 h-1 bg-emerald-500 rounded-full mr-1 lg:mr-1.5 animate-pulse"></span>
               Live Data
             </span>
           </div>
@@ -538,20 +538,20 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       </div>
 
       {/* --- ADVANCED FILTER BAR --- */}
-      <div className="bg-white p-3 lg:p-4 rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm flex flex-col xl:flex-row xl:items-center gap-3 lg:gap-4">
-        <div className="hidden xl:flex items-center text-slate-400 mr-2 shrink-0">
-          <Filter size={16} className="mr-2" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Filters</span>
+      <div className="bg-white p-2.5 lg:p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col xl:flex-row xl:items-center gap-2.5 lg:gap-3">
+        <div className="hidden xl:flex items-center text-slate-400 mr-1 shrink-0">
+          <Filter size={14} className="mr-1.5" />
+          <span className="text-[9px] font-black uppercase tracking-widest">Filters</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 lg:gap-3 flex-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 lg:gap-2.5 flex-1">
           <div className="relative">
-            <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 lg:w-4 lg:h-4" />
+            <MapPin size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 lg:w-3.5 lg:h-3.5" />
             <select
               value={filters.branch}
               onChange={(e) => setFilters({ ...filters, branch: e.target.value, officer: 'all' })} 
               disabled={['Branch Manager', 'Loan Officer'].includes(user?.role)}
-              className="w-full pl-8 lg:pl-9 pr-8 lg:pr-4 py-2 lg:py-2.5 bg-slate-50 border border-slate-200 rounded-lg lg:rounded-xl text-xs lg:text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer disabled:opacity-70"
+              className="w-full pl-7 lg:pl-8 pr-7 lg:pr-3 py-1.5 lg:py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] lg:text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer disabled:opacity-70"
             >
               {['Branch Manager', 'Loan Officer'].includes(user?.role) ? (
                 <option value="all">My Branch</option>
@@ -564,16 +564,16 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                 </>
               )}
             </select>
-            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
 
           <div className="relative">
-            <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 lg:w-4 lg:h-4" />
+            <User size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 lg:w-3.5 lg:h-3.5" />
             <select
               value={filters.officer}
               onChange={(e) => setFilters({ ...filters, officer: e.target.value })}
               disabled={user?.role === 'Loan Officer'}
-              className="w-full pl-8 lg:pl-9 pr-8 lg:pr-4 py-2 lg:py-2.5 bg-slate-50 border border-slate-200 rounded-lg lg:rounded-xl text-xs lg:text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer disabled:opacity-70"
+              className="w-full pl-7 lg:pl-8 pr-7 lg:pr-3 py-1.5 lg:py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] lg:text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer disabled:opacity-70"
             >
               {user?.role === 'Loan Officer' ? (
                 <option value="all">My Portfolio</option>
@@ -586,15 +586,15 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                 </>
               )}
             </select>
-            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
 
           <div className="relative">
-            <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 lg:w-4 lg:h-4" />
+            <Calendar size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 lg:w-3.5 lg:h-3.5" />
             <select
               value={filters.period}
               onChange={(e) => handlePeriodChange(e.target.value)}
-              className="w-full pl-8 lg:pl-9 pr-8 lg:pr-4 py-2 lg:py-2.5 bg-slate-50 border border-slate-200 rounded-lg lg:rounded-xl text-xs lg:text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer"
+              className="w-full pl-7 lg:pl-8 pr-7 lg:pr-3 py-1.5 lg:py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] lg:text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer"
             >
               <option value="today">Today</option>
               <option value="yesterday">Yesterday</option>
@@ -603,34 +603,34 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
               <option value="this_year">This Year</option>
               <option value="custom">Custom Range</option>
             </select>
-            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
 
           <input
             type="date"
             value={filters.startDate}
             onChange={(e) => setFilters({ ...filters, startDate: e.target.value, period: 'custom' })}
-            className="w-full px-3 lg:px-4 py-2 lg:py-2.5 bg-slate-50 border border-slate-200 rounded-lg lg:rounded-xl text-xs lg:text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            className="w-full px-2.5 lg:px-3 py-1.5 lg:py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] lg:text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
 
           <input
             type="date"
             value={filters.endDate}
             onChange={(e) => setFilters({ ...filters, endDate: e.target.value, period: 'custom' })}
-            className="w-full px-3 lg:px-4 py-2 lg:py-2.5 bg-slate-50 border border-slate-200 rounded-lg lg:rounded-xl text-xs lg:text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            className="w-full px-2.5 lg:px-3 py-1.5 lg:py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] lg:text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
         </div>
 
         <button 
           onClick={handleApplyFilters}
-          className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white p-2 lg:p-2.5 rounded-lg lg:rounded-xl shadow-md shadow-blue-500/20 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-blue-500/50 flex justify-center items-center"
+          className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white p-1.5 lg:p-2 rounded-lg shadow-sm shadow-blue-500/20 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-blue-500/50 flex justify-center items-center"
         >
-          <ArrowRight size={18} className="lg:w-5 lg:h-5" />
+          <ArrowRight size={16} className="lg:w-4 lg:h-4" />
         </button>
       </div>
 
       {/* Quick Action Grid with Role Enforcements */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3 lg:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2 lg:gap-3">
         {user?.role !== 'Loan Officer' && (
           <QuickAction title="Disburse" icon={CreditCard} colorClass="bg-blue-50 text-blue-600" onClick={() => onNavigate('disbursements')} />
         )}
@@ -655,53 +655,59 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
         )}
       </div>
 
-      {/* Main KPI Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6">
+      {/* Main KPI Grid - Updated to 5 cards on XL screens with smaller padding */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2 lg:gap-3">
         <StatCard
           title="Active Portfolio"
           value={`KES ${formatCurrency(kpis.activePortfolio)}`}
-          subtext={<><Users size={12} className="lg:w-3.5 lg:h-3.5 mr-1 lg:mr-1.5 text-blue-500" /> {kpis.activeClients} Active Clients</>}
+          subtext={<><Users size={10} className="lg:w-3 lg:h-3 mr-1 text-blue-500" /> {kpis.activeClients} Active Clients</>}
           icon={Briefcase} colorClass="text-slate-900" highlightClass="bg-blue-500"
+        />
+        <StatCard
+          title="Performing Book"
+          value={`KES ${formatCurrency(kpis.performingLoanBook)}`}
+          subtext={<><ShieldCheck size={10} className="lg:w-3 lg:h-3 mr-1 text-indigo-500" /> Core Health Indicator</>}
+          icon={Activity} colorClass="text-indigo-600" highlightClass="bg-indigo-500"
         />
         <StatCard
           title="Period Collections"
           value={`KES ${formatCurrency(kpis.collectedInPeriod)}`}
-          subtext={<><CheckCircle size={12} className="lg:w-3.5 lg:h-3.5 mr-1 lg:mr-1.5 text-emerald-500" /> In Selected Range</>}
+          subtext={<><CheckCircle size={10} className="lg:w-3 lg:h-3 mr-1 text-emerald-500" /> In Selected Range</>}
           icon={TrendingUp} colorClass="text-emerald-600" highlightClass="bg-emerald-500"
         />
         <StatCard
-          title="Portfolio At Risk (PAR)"
+          title="PAR"
           value={`${kpis.parPercentage.toFixed(1)}%`}
-          subtext={<><AlertTriangle size={12} className="lg:w-3.5 lg:h-3.5 mr-1 lg:mr-1.5 text-red-500" /> Value: KES {formatCurrency(kpis.parValue)}</>}
-          icon={Activity} colorClass="text-red-600" highlightClass="bg-red-500"
+          subtext={<><AlertTriangle size={10} className="lg:w-3 lg:h-3 mr-1 text-red-500" /> Value: KES {formatCurrency(kpis.parValue)}</>}
+          icon={AlertTriangle} colorClass="text-red-600" highlightClass="bg-red-500"
         />
         <StatCard
           title="Loans Issued"
           value={kpis.loansIssuedInPeriod.toLocaleString()}
-          subtext={<><Clock size={12} className="lg:w-3.5 lg:h-3.5 mr-1 lg:mr-1.5 text-indigo-500" /> In Selected Range</>}
-          icon={FileText} colorClass="text-slate-900" highlightClass="bg-indigo-500"
+          subtext={<><Clock size={10} className="lg:w-3 lg:h-3 mr-1 text-amber-500" /> In Selected Range</>}
+          icon={FileText} colorClass="text-slate-900" highlightClass="bg-amber-500"
         />
       </div>
 
       {/* --- Feature 3: Live Daily Payment Collection Timeline Chart --- */}
-      <div className="bg-white p-4 lg:p-6 rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm flex flex-col h-[260px] lg:h-[300px]">
-        <div className="flex justify-between items-center mb-4">
+      <div className="bg-white p-3 lg:p-4 rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[200px] lg:h-[260px]">
+        <div className="flex justify-between items-center mb-3">
           <div>
-            <h2 className="text-sm lg:text-base font-bold text-slate-900">Collection Processing Timeline</h2>
-            <p className="text-[10px] lg:text-xs text-slate-500 font-medium mt-0.5">Real-time daily payment ingestion metrics over the past 7 business days</p>
+            <h2 className="text-xs lg:text-sm font-bold text-slate-900">Collection Processing Timeline</h2>
+            <p className="text-[9px] lg:text-[10px] text-slate-500 font-medium mt-0.5">Real-time daily payment ingestion metrics over the past 7 business days</p>
           </div>
-          <div className="flex items-center space-x-1.5 text-[9px] lg:text-[10px] font-black uppercase tracking-widest text-slate-600 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-100">
-            <span className="w-2 h-2 rounded bg-emerald-500"></span> <span>Ingested Payments</span>
+          <div className="flex items-center space-x-1 text-[8px] lg:text-[9px] font-black uppercase tracking-widest text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+            <span className="w-1.5 h-1.5 rounded bg-emerald-500"></span> <span>Ingested Payments</span>
           </div>
         </div>
-        <div className="flex-1 w-full text-xs">
+        <div className="flex-1 w-full text-[10px]">
           {isFetching || isLoading ? (
-            <div className="w-full h-full flex items-center justify-center bg-slate-50 rounded-2xl animate-pulse">
-              <Loader2 size={24} className="animate-spin text-slate-400" />
+            <div className="w-full h-full flex items-center justify-center bg-slate-50 rounded-xl animate-pulse">
+              <Loader2 size={20} className="animate-spin text-slate-400" />
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={collectionTimelineData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <AreaChart data={collectionTimelineData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                 <defs>
                   <linearGradient id="dashboardAmountGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10B981" stopOpacity={0.25}/>
@@ -709,14 +715,14 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="dayLabel" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} dy={5} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                <XAxis dataKey="dayLabel" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 600 }} dy={5} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 600 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
                 <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: '1px solid #E2E8F0', fontWeight: 'bold', fontSize: '11px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}
+                  contentStyle={{ borderRadius: '8px', border: '1px solid #E2E8F0', fontWeight: 'bold', fontSize: '10px', boxShadow: '0 2px 4px -1px rgba(0,0,0,0.05)' }}
                   itemStyle={{ color: '#0F172A' }}
                   formatter={(value: any) => [`KES ${Number(value).toLocaleString()}`, 'Repayments Ingested']}
                 />
-                <Area type="monotone" dataKey="Amount" stroke="#10B981" strokeWidth={2.5} fillOpacity={1} fill="url(#dashboardAmountGrad)" activeDot={{ r: 5, fill: '#10B981', strokeWidth: 0 }} />
+                <Area type="monotone" dataKey="Amount" stroke="#10B981" strokeWidth={2} fillOpacity={1} fill="url(#dashboardAmountGrad)" activeDot={{ r: 4, fill: '#10B981', strokeWidth: 0 }} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -724,31 +730,31 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       </div>
 
       {/* --- UPCOMING COLLECTIONS COMPONENT --- */}
-      <div className="bg-white rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col mt-4 lg:mt-6">
-        <div className="p-4 lg:p-6 border-b border-slate-200 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 lg:gap-4">
+      <div className="bg-white rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col mt-3 lg:mt-4">
+        <div className="p-3 lg:p-4 border-b border-slate-200 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-2 lg:gap-3">
           <div>
-            <h2 className="text-base lg:text-lg font-bold text-slate-900 flex items-center">
-              <Calendar className="mr-2 text-blue-600 w-4 h-4 lg:w-5 lg:h-5" />
+            <h2 className="text-sm lg:text-base font-bold text-slate-900 flex items-center">
+              <Calendar className="mr-1.5 text-blue-600 w-3.5 h-3.5 lg:w-4 lg:h-4" />
               Upcoming Collections Tracker
             </h2>
-            <p className="text-[10px] lg:text-xs text-slate-500 font-medium mt-0.5 lg:mt-1">Track expected installments based on loan product schedules</p>
+            <p className="text-[9px] lg:text-[10px] text-slate-500 font-medium mt-0.5">Track expected installments based on loan product schedules</p>
           </div>
-          <div className="flex bg-slate-100 p-1 rounded-lg lg:rounded-xl w-full lg:w-auto overflow-x-auto">
+          <div className="flex bg-slate-100 p-1 rounded-md lg:rounded-lg w-full lg:w-auto overflow-x-auto">
             <button 
               onClick={() => setActiveDueTab('yesterday')}
-              className={`flex-1 lg:flex-none px-3 lg:px-4 py-1.5 text-[10px] lg:text-xs font-bold rounded-md lg:rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'yesterday' ? 'bg-white text-red-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`flex-1 lg:flex-none px-2 lg:px-3 py-1 text-[9px] lg:text-[10px] font-bold rounded transition-all outline-none whitespace-nowrap ${activeDueTab === 'yesterday' ? 'bg-white text-red-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
             >
               Due Yesterday ({dueCollections.yesterday.length})
             </button>
             <button 
               onClick={() => setActiveDueTab('today')}
-              className={`flex-1 lg:flex-none px-3 lg:px-4 py-1.5 text-[10px] lg:text-xs font-bold rounded-md lg:rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'today' ? 'bg-white text-blue-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`flex-1 lg:flex-none px-2 lg:px-3 py-1 text-[9px] lg:text-[10px] font-bold rounded transition-all outline-none whitespace-nowrap ${activeDueTab === 'today' ? 'bg-white text-blue-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
             >
               Due Today ({dueCollections.today.length})
             </button>
             <button 
               onClick={() => setActiveDueTab('tomorrow')}
-              className={`flex-1 lg:flex-none px-3 lg:px-4 py-1.5 text-[10px] lg:text-xs font-bold rounded-md lg:rounded-lg transition-all outline-none whitespace-nowrap ${activeDueTab === 'tomorrow' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`flex-1 lg:flex-none px-2 lg:px-3 py-1 text-[9px] lg:text-[10px] font-bold rounded transition-all outline-none whitespace-nowrap ${activeDueTab === 'tomorrow' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
             >
               Due Tomorrow ({dueCollections.tomorrow.length})
             </button>
@@ -756,65 +762,64 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
         </div>
         
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse min-w-[700px] lg:min-w-[900px]">
+          <table className="w-full text-left border-collapse min-w-[600px] lg:min-w-[800px]">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[9px] lg:text-[10px] uppercase tracking-widest font-black">
-                <th className="p-3 lg:p-4 pl-4 lg:pl-6 w-1/4">Borrower</th>
-                <th className="p-3 lg:p-4 w-1/5">Contact</th>
-                <th className="p-3 lg:p-4 w-1/4">Loan Product</th>
-                <th className="p-3 lg:p-4 text-right w-1/6">Expected Installment</th>
-                <th className="p-3 lg:p-4 text-right pr-4 lg:pr-6 w-1/6">Action</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[8px] lg:text-[9px] uppercase tracking-widest font-black">
+                <th className="p-2 lg:p-3 pl-3 lg:pl-4 w-1/4">Borrower</th>
+                <th className="p-2 lg:p-3 w-1/5">Contact</th>
+                <th className="p-2 lg:p-3 w-1/4">Loan Product</th>
+                <th className="p-2 lg:p-3 text-right w-1/6">Expected Installment</th>
+                <th className="p-2 lg:p-3 text-right pr-3 lg:pr-4 w-1/6">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
-                <tr><td colSpan={5} className="py-6 lg:py-8 text-center text-slate-400"><Loader2 className="animate-spin inline mx-auto" size={20}/></td></tr>
+                <tr><td colSpan={5} className="py-4 lg:py-6 text-center text-slate-400"><Loader2 className="animate-spin inline mx-auto" size={16}/></td></tr>
               ) : currentDueList.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-10 lg:py-16 text-center">
-                    <div className="w-12 h-12 lg:w-16 lg:h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-2 lg:mb-3 text-slate-400"><CheckCircle className="w-6 h-6 lg:w-7 lg:h-7" /></div>
-                    <p className="text-slate-700 font-bold text-base lg:text-lg">You're all caught up!</p>
-                    <p className="text-slate-500 text-xs lg:text-sm mt-0.5 lg:mt-1">No scheduled installments are due {activeDueTab}.</p>
+                  <td colSpan={5} className="py-8 lg:py-12 text-center">
+                    <div className="w-10 h-10 lg:w-12 lg:h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-2 text-slate-400"><CheckCircle className="w-5 h-5 lg:w-6 lg:h-6" /></div>
+                    <p className="text-slate-700 font-bold text-sm lg:text-base">You're all caught up!</p>
+                    <p className="text-slate-500 text-[10px] lg:text-xs mt-0.5">No scheduled installments are due {activeDueTab}.</p>
                   </td>
                 </tr>
               ) : (
                 currentDueList.map(loan => (
                   <tr key={loan.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-3 lg:p-4 pl-4 lg:pl-6">
-                      <div className="flex items-center space-x-2">
+                    <td className="p-2 lg:p-3 pl-3 lg:pl-4">
+                      <div className="flex items-center space-x-1.5">
                         <div>
-                          <p className="font-bold text-slate-900 text-xs lg:text-sm mb-0.5">
+                          <p className="font-bold text-slate-900 text-[11px] lg:text-xs mb-0.5">
                             {loan.borrower?.first_name} {loan.borrower?.last_name}
                           </p>
-                          <p className="text-[9px] lg:text-[10px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
+                          <p className="text-[8px] lg:text-[9px] text-slate-500 font-mono">ID: {loan.borrower?.national_id}</p>
                         </div>
-                        {/* Feature 4: Display Arrears badge inside table line items */}
                         {loan.inArrears && (
-                          <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase tracking-wider border border-red-200 px-1.5 py-0.5 rounded animate-pulse">
+                          <span className="bg-red-50 text-red-600 text-[7px] font-black uppercase tracking-wider border border-red-200 px-1 py-0.5 rounded animate-pulse">
                             Arrears
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="p-3 lg:p-4">
-                      <p className="text-[11px] lg:text-xs font-bold text-slate-700 flex items-center"><Phone size={10} className="lg:w-3 lg:h-3 mr-1 lg:mr-1.5 text-slate-400" /> {loan.borrower?.phone_number}</p>
+                    <td className="p-2 lg:p-3">
+                      <p className="text-[10px] lg:text-[11px] font-bold text-slate-700 flex items-center"><Phone size={8} className="lg:w-2.5 lg:h-2.5 mr-1 text-slate-400" /> {loan.borrower?.phone_number}</p>
                     </td>
-                    <td className="p-3 lg:p-4">
-                      <span className="bg-indigo-50 text-indigo-700 px-1.5 lg:px-2 py-0.5 rounded text-[9px] lg:text-[10px] font-bold uppercase tracking-wider border border-indigo-100 inline-block mb-1">
+                    <td className="p-2 lg:p-3">
+                      <span className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded text-[8px] lg:text-[9px] font-bold uppercase tracking-wider border border-indigo-100 inline-block mb-1">
                         {loan.loan_product?.name || 'Standard Loan'}
                       </span>
-                      <p className="text-[9px] lg:text-[10px] font-bold text-slate-500 flex items-center">
+                      <p className="text-[8px] lg:text-[9px] font-bold text-slate-500 flex items-center">
                         Bal: KES {formatCurrency(loan.outstanding_balance)}
                       </p>
                     </td>
-                    <td className="p-3 lg:p-4 text-right">
-                      <p className={`text-xs lg:text-sm font-black ${activeDueTab === 'yesterday' || loan.inArrears ? 'text-red-600' : 'text-slate-900'}`}>
+                    <td className="p-2 lg:p-3 text-right">
+                      <p className={`text-[11px] lg:text-xs font-black ${activeDueTab === 'yesterday' || loan.inArrears ? 'text-red-600' : 'text-slate-900'}`}>
                         KES {formatCurrency(loan.installmentAmount)}
                       </p>
                     </td>
-                    <td className="p-3 lg:p-4 text-right pr-4 lg:pr-6">
+                    <td className="p-2 lg:p-3 text-right pr-3 lg:pr-4">
                        {user?.role !== 'Loan Officer' && (
-                         <button onClick={() => onNavigate('repayments')} className="px-2.5 lg:px-3 py-1 lg:py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-md lg:rounded-lg text-[10px] lg:text-xs font-bold transition-colors outline-none shadow-sm">
+                         <button onClick={() => onNavigate('repayments')} className="px-2 py-1 lg:px-2.5 lg:py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded lg:rounded-md text-[9px] lg:text-[10px] font-bold transition-colors outline-none shadow-sm">
                             Log Repayment
                          </button>
                        )}
@@ -828,59 +833,59 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       </div>
 
       {/* --- ANALYTICS ROW 1: Cash Flow (2/3) & Loan Status (1/3) --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mt-4 lg:mt-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 mt-3 lg:mt-4">
 
         {/* Cash Flow Trends Chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm p-4 lg:p-6 xl:p-8 flex flex-col h-[300px] lg:h-[400px]">
-          <div className="flex justify-between items-center mb-4 lg:mb-8">
+        <div className="lg:col-span-2 bg-white rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm p-3 lg:p-4 xl:p-6 flex flex-col h-[240px] lg:h-[300px]">
+          <div className="flex justify-between items-center mb-3 lg:mb-4">
             <div>
-              <h2 className="text-base lg:text-lg font-bold text-slate-900">Cash Flow Trends</h2>
-              <p className="text-[10px] lg:text-xs text-slate-500 font-medium mt-0.5 lg:mt-1">Disbursements vs Repayments</p>
+              <h2 className="text-xs lg:text-sm font-bold text-slate-900">Cash Flow Trends</h2>
+              <p className="text-[9px] lg:text-[10px] text-slate-500 font-medium mt-0.5">Disbursements vs Repayments</p>
             </div>
 
             {/* Custom Chart Legend */}
-            <div className="hidden sm:flex items-center space-x-3 lg:space-x-4 text-[10px] lg:text-xs font-bold text-slate-600 bg-slate-50 px-3 lg:px-4 py-1.5 lg:py-2 rounded-lg lg:rounded-xl border border-slate-100">
-              <div className="flex items-center"><span className="w-2 h-2 lg:w-3 lg:h-3 rounded bg-slate-900 mr-1.5 lg:mr-2"></span> Disbursements</div>
-              <div className="flex items-center"><span className="w-2 h-2 lg:w-3 lg:h-3 rounded bg-emerald-500 mr-1.5 lg:mr-2"></span> Repayments</div>
+            <div className="hidden sm:flex items-center space-x-2 lg:space-x-3 text-[9px] lg:text-[10px] font-bold text-slate-600 bg-slate-50 px-2 lg:px-3 py-1 lg:py-1.5 rounded-md lg:rounded-lg border border-slate-100">
+              <div className="flex items-center"><span className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded bg-slate-900 mr-1 lg:mr-1.5"></span> Disbursements</div>
+              <div className="flex items-center"><span className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded bg-emerald-500 mr-1 lg:mr-1.5"></span> Repayments</div>
             </div>
           </div>
 
-          <div className="flex-1 w-full text-xs">
+          <div className="flex-1 w-full text-[10px]">
             {isFetching || isLoading ? (
-              <div className="w-full h-full flex items-center justify-center bg-slate-50 rounded-xl lg:rounded-2xl animate-pulse">
-                <span className="text-slate-400 font-medium text-xs lg:text-sm">Aggregating records...</span>
+              <div className="w-full h-full flex items-center justify-center bg-slate-50 rounded-lg lg:rounded-xl animate-pulse">
+                <span className="text-slate-400 font-medium text-[10px] lg:text-xs">Aggregating records...</span>
               </div>
             ) : cashFlowData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={cashFlowData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <ComposedChart data={cashFlowData} margin={{ top: 0, right: 0, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} dy={10} />
-                  <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} tickFormatter={(val) => {
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 600 }} dy={5} />
+                  <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 600 }} tickFormatter={(val) => {
                       if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M`;
                       if (val >= 1000) return `${(val / 1000).toFixed(1)}K`;
                       return val;
                   }} />
                   <Tooltip content={<CustomCashFlowTooltip />} cursor={{ fill: '#f8fafc' }} />
-                  <Bar yAxisId="left" dataKey="repaid" name="Repayments" fill="#10B981" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Line yAxisId="left" type="monotone" dataKey="disbursed" name="Disbursements" stroke="#0F172A" strokeWidth={3} dot={{ r: 3, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 5, strokeWidth: 0, fill: '#0F172A' }} />
+                  <Bar yAxisId="left" dataKey="repaid" name="Repayments" fill="#10B981" radius={[3, 3, 0, 0]} barSize={14} />
+                  <Line yAxisId="left" type="monotone" dataKey="disbursed" name="Disbursements" stroke="#0F172A" strokeWidth={2} dot={{ r: 2, strokeWidth: 1.5, fill: '#fff' }} activeDot={{ r: 4, strokeWidth: 0, fill: '#0F172A' }} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-400 font-medium text-xs lg:text-sm">No transaction data available.</div>
+              <div className="w-full h-full flex items-center justify-center text-slate-400 font-medium text-[10px] lg:text-xs">No transaction data available.</div>
             )}
           </div>
         </div>
 
         {/* Loan Status Doughnut Chart */}
-        <div className="bg-white rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm p-4 lg:p-6 xl:p-8 flex flex-col h-[300px] lg:h-[400px]">
-          <div className="mb-2 text-center lg:text-left">
-            <h2 className="text-base lg:text-lg font-bold text-slate-900">Loan Status</h2>
-            <p className="text-[10px] lg:text-xs text-slate-500 font-medium mt-0.5 lg:mt-1">Portfolio distribution by state</p>
+        <div className="bg-white rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm p-3 lg:p-4 xl:p-6 flex flex-col h-[240px] lg:h-[300px]">
+          <div className="mb-1 lg:mb-2 text-center lg:text-left">
+            <h2 className="text-xs lg:text-sm font-bold text-slate-900">Loan Status</h2>
+            <p className="text-[9px] lg:text-[10px] text-slate-500 font-medium mt-0.5">Portfolio distribution by state</p>
           </div>
 
-          <div className="flex-1 w-full flex items-center justify-center min-h-[150px] lg:min-h-[200px]">
+          <div className="flex-1 w-full flex items-center justify-center min-h-[120px] lg:min-h-[150px]">
             {isFetching || isLoading ? (
-              <div className="w-32 h-32 lg:w-48 lg:h-48 rounded-full border-[8px] lg:border-[12px] border-slate-50 animate-pulse"></div>
+              <div className="w-24 h-24 lg:w-32 lg:h-32 rounded-full border-[6px] lg:border-[8px] border-slate-50 animate-pulse"></div>
             ) : statusChartData.some(d => d.value > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -888,8 +893,8 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                     data={statusChartData.filter(d => d.value > 0)}
                     cx="50%"
                     cy="50%"
-                    innerRadius={50}
-                    outerRadius={70}
+                    innerRadius={40}
+                    outerRadius={55}
                     paddingAngle={2}
                     dataKey="value"
                     stroke="none"
@@ -899,21 +904,21 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #E2E8F0', fontWeight: 'bold', fontSize: '10px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                    contentStyle={{ borderRadius: '6px', border: '1px solid #E2E8F0', fontWeight: 'bold', fontSize: '9px', boxShadow: '0 2px 4px -1px rgba(0,0,0,0.05)' }}
                     itemStyle={{ color: '#0F172A' }}
                   />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <span className="text-slate-400 font-medium text-xs lg:text-sm">No loans recorded.</span>
+              <span className="text-slate-400 font-medium text-[10px] lg:text-xs">No loans recorded.</span>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-y-2 lg:gap-y-3 gap-x-2 mt-2">
+          <div className="grid grid-cols-2 gap-y-1.5 lg:gap-y-2 gap-x-1.5 mt-1 lg:mt-2">
             {statusChartData.map(item => (
-              <div key={item.name} className="flex items-center space-x-1.5 lg:space-x-2">
-                <span className="w-2 h-2 lg:w-3 lg:h-3 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: item.color }}></span>
-                <span className="text-[10px] lg:text-xs font-bold text-slate-600 truncate">{item.name} ({item.value})</span>
+              <div key={item.name} className="flex items-center space-x-1 lg:space-x-1.5">
+                <span className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: item.color }}></span>
+                <span className="text-[9px] lg:text-[10px] font-bold text-slate-600 truncate">{item.name} ({item.value})</span>
               </div>
             ))}
           </div>
@@ -922,33 +927,33 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       </div>
 
       {/* --- ANALYTICS ROW 2: Clients By Branch (2/3) & Payment Channels (1/3) --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 mt-3 lg:mt-4">
 
         {/* Clients By Branch Horizontal Chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl lg:rounded-3xl border border-slate-200 shadow-sm p-4 lg:p-6 xl:p-8 flex flex-col h-[280px] lg:h-[340px]">
-          <div className="flex justify-between items-center mb-4 lg:mb-8">
+        <div className="lg:col-span-2 bg-white rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm p-3 lg:p-4 xl:p-6 flex flex-col h-[220px] lg:h-[280px]">
+          <div className="flex justify-between items-center mb-3 lg:mb-4">
             <div>
-              <h2 className="text-base lg:text-lg font-bold text-slate-900">Clients by Branch</h2>
-              <p className="text-[10px] lg:text-xs text-slate-500 font-medium mt-0.5 lg:mt-1">Customer distribution across locations</p>
+              <h2 className="text-xs lg:text-sm font-bold text-slate-900">Clients by Branch</h2>
+              <p className="text-[9px] lg:text-[10px] text-slate-500 font-medium mt-0.5">Customer distribution across locations</p>
             </div>
-            <button className="text-[10px] lg:text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-2 lg:px-3 py-1 lg:py-1.5 rounded-md lg:rounded-lg transition-colors outline-none">Download CSV</button>
+            <button className="text-[9px] lg:text-[10px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-1.5 lg:px-2 py-1 rounded transition-colors outline-none">Download CSV</button>
           </div>
 
-          <div className="flex-1 w-full text-xs">
+          <div className="flex-1 w-full text-[10px]">
             {isFetching || isLoading ? (
-              <div className="w-full h-full bg-slate-50 rounded-xl lg:rounded-2xl animate-pulse"></div>
+              <div className="w-full h-full bg-slate-50 rounded-lg lg:rounded-xl animate-pulse"></div>
             ) : branchChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   layout="vertical"
                   data={branchChartData.slice(0, 5)} // Limit to top 5
-                  margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
+                  margin={{ top: 0, right: 10, left: -10, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="4 4" horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} />
-                  <YAxis dataKey="branch" type="category" axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 10, fontWeight: 700 }} width={120} />
+                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 600 }} />
+                  <YAxis dataKey="branch" type="category" axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 9, fontWeight: 700 }} width={100} />
                   <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="clients" radius={[0, 6, 6, 0]} barSize={16}>
+                  <Bar dataKey="clients" radius={[0, 4, 4, 0]} barSize={12}>
                     {branchChartData.slice(0, 5).map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={index === 0 ? '#3B82F6' : '#93C5FD'} className="hover:opacity-80 transition-opacity cursor-pointer" />
                     ))}
@@ -956,26 +961,26 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-400 font-medium text-xs lg:text-sm">No branch data available.</div>
+              <div className="w-full h-full flex items-center justify-center text-slate-400 font-medium text-[10px] lg:text-xs">No branch data available.</div>
             )}
           </div>
         </div>
 
         {/* Payment Channels */}
-        <div className="bg-white rounded-2xl lg:rounded-3xl shadow-sm border border-slate-200 p-4 lg:p-6 xl:p-8 flex flex-col h-[280px] lg:h-[340px]">
-          <h2 className="text-base lg:text-lg font-bold text-slate-900 mb-4 lg:mb-6">Recent Activity <span className="text-[10px] lg:text-xs font-semibold text-slate-400 font-normal ml-1">(Database Linked)</span></h2>
+        <div className="bg-white rounded-xl lg:rounded-2xl shadow-sm border border-slate-200 p-3 lg:p-4 xl:p-6 flex flex-col h-[220px] lg:h-[280px]">
+          <h2 className="text-xs lg:text-sm font-bold text-slate-900 mb-3 lg:mb-4">Recent Activity <span className="text-[9px] lg:text-[10px] font-semibold text-slate-400 font-normal ml-0.5">(Database Linked)</span></h2>
 
-          <div className="space-y-3 lg:space-y-4 flex-1 flex flex-col justify-center items-center text-center">
-            <div className="w-12 h-12 lg:w-16 lg:h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-1 lg:mb-2">
-              <Activity className="w-6 h-6 lg:w-7 lg:h-7" />
+          <div className="space-y-2 lg:space-y-3 flex-1 flex flex-col justify-center items-center text-center">
+            <div className="w-10 h-10 lg:w-12 lg:h-12 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-1">
+              <Activity className="w-5 h-5 lg:w-6 lg:h-6" />
             </div>
-            <p className="text-xs lg:text-sm font-bold text-slate-700">Metrics are live!</p>
-            <p className="text-[10px] lg:text-xs font-medium text-slate-500 px-2 lg:px-4">
+            <p className="text-[11px] lg:text-xs font-bold text-slate-700">Metrics are live!</p>
+            <p className="text-[9px] lg:text-[10px] font-medium text-slate-500 px-1 lg:px-2">
               The charts and KPIs above are now actively syncing with your PostgreSQL database.
             </p>
           </div>
 
-          <button onClick={() => onNavigate('transaction-history')} className="w-full mt-2 py-2.5 lg:py-3.5 bg-white text-blue-600 font-bold text-xs lg:text-sm rounded-lg lg:rounded-xl hover:bg-blue-50 transition-colors border border-slate-200 hover:border-blue-200 outline-none shadow-sm">
+          <button onClick={() => onNavigate('transaction-history')} className="w-full mt-1 lg:mt-2 py-2 lg:py-2.5 bg-white text-blue-600 font-bold text-[10px] lg:text-xs rounded-md lg:rounded-lg hover:bg-blue-50 transition-colors border border-slate-200 hover:border-blue-200 outline-none shadow-sm">
             View All Transactions
           </button>
         </div>
