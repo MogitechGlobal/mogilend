@@ -52,7 +52,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     parValue: 0,
     parPercentage: 0,
     loansIssuedInPeriod: 0,
-    performingLoanBook: 0,
+    performingLoanBook: 0, // NEW METRIC
   });
   const [cashFlowData, setCashFlowData] = useState<any[]>([]);
   const [statusChartData, setStatusChartData] = useState<any[]>([]);
@@ -226,11 +226,9 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
     const parValue = defaultedLoans.reduce((sum: number, l: any) => sum + (Number(l.outstanding_balance) || 0), 0);
     const parPercentage = activePortfolio > 0 ? (parValue / activePortfolio) * 100 : 0;
 
-    const strictlyActiveLoansValue = portfolioLoans
-      .filter((l: any) => l.status === 'DISBURSED')
-      .reduce((sum: number, l: any) => sum + (Number(l.outstanding_balance) || 0), 0);
-    
-    const performingLoanBook = strictlyActiveLoansValue + (parValue * 0.22);
+    // --- NEW METRIC: Performing Loan Book ---
+    // Calculated as Active Portfolio + 22% (Active Portfolio * 1.22)
+    const performingLoanBook = activePortfolio * 1.22;
 
     const collectedInPeriod = periodTransactions
       .filter((t: any) => t.type === 'REPAYMENT')
@@ -245,9 +243,10 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       parValue,
       parPercentage,
       loansIssuedInPeriod,
-      performingLoanBook 
+      performingLoanBook // Added to State
     });
 
+    // Helper function to safely format dates to YYYY-MM-DD in the local timezone
     const getLocalYMD = (d: Date) => {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -434,7 +433,6 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
   }, [appliedFilters, rawLoans, rawBorrowers, rawTransactions, isFetching, user, branchesList]); 
 
   // --- REUSABLE COMPONENTS ---
-  // UPDATED StatCard: Reduced font sizes and margins to prevent truncation
   const StatCard = ({ title, value, subtext, icon: Icon, colorClass, highlightClass }: any) => (
     <div className="bg-white p-3 lg:p-4 rounded-xl lg:rounded-2xl border border-slate-200 shadow-sm hover:-translate-y-1 hover:shadow-lg transition-all duration-300 relative overflow-hidden group cursor-pointer flex flex-col justify-between min-h-[90px]">
       <div className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${highlightClass}`}></div>
@@ -462,7 +460,7 @@ export const BranchDashboard = ({ onNavigate }: { onNavigate: (path: any) => voi
       onClick={onClick}
       className="bg-white border border-slate-200 p-2.5 lg:p-3 rounded-lg lg:rounded-xl flex items-center space-x-2.5 lg:space-x-3 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-blue-500/20 w-full text-left group"
     >
-      <div className={`w-8 h-8 lg:w-10 lg:h-10 rounded-md lg:rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
+      <div className={`w-8 h-8 lg:w-10 h-10 lg:h-10 rounded-md lg:rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
         <Icon size={16} className="lg:w-4 lg:h-4" />
       </div>
       <span className="font-bold text-[11px] lg:text-xs text-slate-700 group-hover:text-slate-900 line-clamp-1">{title}</span>
