@@ -12,7 +12,7 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
   
   const [loans, setLoans] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'PENDING' | 'DISBURSED' | 'REJECTED' | 'DEFAULTED'>('PENDING');
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'PENDING' | 'DISBURSED' | 'REJECTED' | 'DEFAULTED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modal States
@@ -210,7 +210,7 @@ export const DisbursementsPage = ({ onNavigate }: { onNavigate?: (path: string) 
 
       {/* Filter Tabs */}
       <div className="flex space-x-2 mb-4 overflow-x-auto pb-2 custom-scrollbar">
-        {['PENDING', 'DISBURSED', 'DEFAULTED', 'REJECTED', 'ALL'].map((tab) => (
+        {['ALL', 'PENDING', 'DISBURSED', 'DEFAULTED', 'REJECTED'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveFilter(tab as any)}
