@@ -95,37 +95,37 @@ function App() {
       {/* Dashboards (Everyone) */}
       {currentPage === 'dashboard' && <BranchDashboard onNavigate={handleNavigate} />}
       
-      {/* System & Credit Settings (Admins Only) */}
-      {currentPage === 'loan-products' && (hasAccess(['Lender Admin']) ? <LoanProductsPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'interest-rates' && (hasAccess(['Lender Admin']) ? <InterestRatesPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'system-config' && (hasAccess(['Lender Admin']) ? <SystemConfigPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'branch-management' && (hasAccess(['Lender Admin']) ? <BranchManagementPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'audit-ledger' && (hasAccess(['Lender Admin']) ? <AuditLedgerPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'register-staff' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <RegisterStaffPage /> : <UnauthorizedAccess />)}
+      {/* System & Credit Settings (Admins and Viewers Only) */}
+      {currentPage === 'loan-products' && (hasAccess(['Lender Admin', 'Viewer']) ? <LoanProductsPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'interest-rates' && (hasAccess(['Lender Admin', 'Viewer']) ? <InterestRatesPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'system-config' && (hasAccess(['Lender Admin', 'Viewer']) ? <SystemConfigPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'branch-management' && (hasAccess(['Lender Admin', 'Viewer']) ? <BranchManagementPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'audit-ledger' && (hasAccess(['Lender Admin', 'Viewer']) ? <AuditLedgerPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'register-staff' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <RegisterStaffPage /> : <UnauthorizedAccess />)}
       
       {/* High-Privilege Operations (Branch Managers & Admins) */}
-      {currentPage === 'disbursements' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <DisbursementsPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
-      {currentPage === 'approvals-pending' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <ApprovalsPendingPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'pending-amendments' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <PendingAmendmentsPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'customer-transfer' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <CustomerTransferPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'customer-edits' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <CustomerEditsPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'disbursements' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <DisbursementsPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
+      {currentPage === 'approvals-pending' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <ApprovalsPendingPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'pending-amendments' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <PendingAmendmentsPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'customer-transfer' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <CustomerTransferPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'customer-edits' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <CustomerEditsPage /> : <UnauthorizedAccess />)}
       
       {/* Standard Credit Operations (Loan Officers & Above) */}
-      {(currentPage === 'application' || currentPage === 'loan-application') && (hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) ? <LoanApplicationPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
-      {currentPage === 'borrowers' && (hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) ? <BorrowersPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
-      {currentPage === 'active-loans' && (hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer']) ? <ActiveLoansPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
+      {(currentPage === 'application' || currentPage === 'loan-application') && (hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Viewer']) ? <LoanApplicationPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
+      {currentPage === 'borrowers' && (hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Viewer']) ? <BorrowersPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
+      {currentPage === 'active-loans' && (hasAccess(['Lender Admin', 'Branch Manager', 'Loan Officer', 'Viewer']) ? <ActiveLoansPage onNavigate={handleNavigate} /> : <UnauthorizedAccess />)}
       
       {/* Cashier & Ledger Operations */}
-      {currentPage === 'repayments' && (hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) ? <RepaymentsPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'transaction-history' && (hasAccess(['Lender Admin', 'Branch Manager', 'Cashier']) ? <TransactionHistoryPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'repayments' && (hasAccess(['Lender Admin', 'Branch Manager', 'Cashier', 'Viewer']) ? <RepaymentsPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'transaction-history' && (hasAccess(['Lender Admin', 'Branch Manager', 'Cashier', 'Viewer']) ? <TransactionHistoryPage /> : <UnauthorizedAccess />)}
       
       {/* Reports */}
-      {currentPage === 'financial-reports' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <FinancialReportsPage /> : <UnauthorizedAccess />)}
-      {currentPage === 'portfolio-report' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <PortfolioReportPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'financial-reports' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <FinancialReportsPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'portfolio-report' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <PortfolioReportPage /> : <UnauthorizedAccess />)}
 
       {/* Marketing */}
-      {currentPage === 'marketing' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <MarketingOverviewPage/> : <UnauthorizedAccess />)}
-      {currentPage === 'marketing-leads' && (hasAccess(['Lender Admin', 'Branch Manager']) ? <MarketingLeadsPage /> : <UnauthorizedAccess />)}
+      {currentPage === 'marketing' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <MarketingOverviewPage/> : <UnauthorizedAccess />)}
+      {currentPage === 'marketing-leads' && (hasAccess(['Lender Admin', 'Branch Manager', 'Viewer']) ? <MarketingLeadsPage /> : <UnauthorizedAccess />)}
 
       {/* Profile & Settings (Everyone) */}
       {currentPage === 'profile' && <ProfileSettings />}
